@@ -1,0 +1,7 @@
+# ML Model Weights (large binary files — never commit these)
+*.onnx
+*.onnx.data
+*.pt
+*.pth
+*.bin
+*.safetensors

@@ -1,0 +1,10 @@
+{
+    "best_run_name":"embedding_minilm_logreg_C_1_0",
+    "best_C":1.0,
+    "best_accuracy":0.9411764706,
+    "best_macro_f1":0.9137370524,
+    "best_weighted_f1":0.9415138625,
+    "embedding_model_name":"sentence-transformers\/paraphrase-multilingual-MiniLM-L12-v2",
+    "classifier":"logistic_regression",
+    "selection_metric":"macro_f1"
+}

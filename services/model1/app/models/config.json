@@ -1,0 +1,11 @@
+{
+    "model_name": "google/muril-base-cased",
+    "max_length": 384,
+    "num_validity_labels": 2,
+    "num_priority_labels": 4,
+    "tasks": [
+        "validity",
+        "priority",
+        "trust_score"
+    ]
+}

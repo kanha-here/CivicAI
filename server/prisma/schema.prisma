@@ -1,0 +1,339 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CITIZEN
+  OFFICER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum ComplaintStatus {
+  SUBMITTED
+  TRIAGED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+  CLOSED
+}
+
+enum PriorityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  OPEN
+  DISPATCHED
+  MONITORING
+  RESOLVED
+  ESCALATED
+}
+
+enum TaskStatus {
+  QUEUED
+  ASSIGNED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+}
+
+enum AIExecutionStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+model User {
+  id                String                 @id @default(uuid()) @db.Uuid
+  name              String
+  email             String                 @unique
+  passwordHash      String
+  role              UserRole               @default(CITIZEN)
+  phone             String?
+  address           String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  complaints        Complaint[]            @relation("CitizenComplaints")
+  complaintsAssigned Complaint[]            @relation("AssignedOfficerComplaints")
+  complaintHistory   ComplaintStatusHistory[] @relation("StatusChangedBy")
+  incidentsAssigned  Task[]                 @relation("OfficerTasks")
+  notifications      Notification[]
+  activityLogs      ActivityLog[]
+  feedback          Feedback[]
+  suggestedAiOutputs AIModelOutput[]       @relation("SuggestedOfficerAIOutputs")
+}
+
+model Department {
+  id          String      @id @default(uuid()) @db.Uuid
+  name        String      @unique
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  complaints  Complaint[]
+  incidents   Incident[]
+
+  @@index([name])
+}
+
+model Complaint {
+  id                String                @id @default(uuid()) @db.Uuid
+  title             String
+  description       String
+  status            ComplaintStatus       @default(SUBMITTED)
+  priority          PriorityLevel         @default(MEDIUM)
+  citizenId         String                @db.Uuid
+  departmentId      String?               @db.Uuid
+  assignedOfficerId  String?               @db.Uuid
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  citizen           User                  @relation("CitizenComplaints", fields: [citizenId], references: [id], onDelete: Cascade)
+  department        Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  assignedOfficer    User?                 @relation("AssignedOfficerComplaints", fields: [assignedOfficerId], references: [id], onDelete: SetNull)
+  statusHistory     ComplaintStatusHistory[]
+  incidents         Incident[]
+  predictions       Prediction[]
+  aiModelOutputs    AIModelOutput[]
+  predictionLogs    PredictionLog[]
+  resolutionPredictions ResolutionPrediction[]
+  attachments       Attachment[]
+  feedback          Feedback[]
+
+  @@index([citizenId])
+  @@index([departmentId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model ComplaintStatusHistory {
+  id          String            @id @default(uuid()) @db.Uuid
+  complaintId String            @db.Uuid
+  oldStatus   ComplaintStatus?
+  newStatus   ComplaintStatus
+  changedById String?           @db.Uuid
+  note        String?
+  createdAt   DateTime          @default(now())
+  complaint   Complaint         @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  changedBy   User?             @relation("StatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([complaintId])
+  @@index([changedById])
+}
+
+model Incident {
+  id           String          @id @default(uuid()) @db.Uuid
+  complaintId  String?         @db.Uuid
+  departmentId String?         @db.Uuid
+  severity     PriorityLevel   @default(MEDIUM)
+  location     String?
+  status       IncidentStatus  @default(OPEN)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  complaint    Complaint?      @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+  department   Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  tasks        Task[]
+
+  @@index([complaintId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model Task {
+  id          String      @id @default(uuid()) @db.Uuid
+  officerId   String?     @db.Uuid
+  incidentId  String?     @db.Uuid
+  status      TaskStatus  @default(QUEUED)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  officer     User?       @relation("OfficerTasks", fields: [officerId], references: [id], onDelete: SetNull)
+  incident    Incident?   @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  @@index([officerId])
+  @@index([incidentId])
+  @@index([status])
+}
+
+model Prediction {
+  id              String     @id @default(uuid()) @db.Uuid
+  complaintId     String?    @db.Uuid
+  category        String
+  confidenceScore Decimal?   @db.Decimal(5, 2)
+  validity        String?
+  validityConfidence Decimal? @db.Decimal(5, 2)
+  priority       String?
+  priorityConfidence Decimal? @db.Decimal(5, 2)
+  trustScore      Decimal?   @db.Decimal(5, 3)
+  createdAt       DateTime   @default(now())
+  complaint       Complaint? @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+
+  @@index([complaintId])
+  @@index([category])
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @db.Uuid
+  action     String
+  entityType String
+  entityId   String
+  meta       Json?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Attachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  complaintId String   @db.Uuid
+  fileUrl     String
+  fileName    String?
+  createdAt   DateTime @default(now())
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId])
+}
+
+model Feedback {
+  id          String   @id @default(uuid()) @db.Uuid
+  complaintId String   @db.Uuid
+  userId      String?  @db.Uuid
+  rating      Int
+  review      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([complaintId])
+  @@index([userId])
+}
+
+model AIModelOutput {
+  id                       String            @id @default(uuid()) @db.Uuid
+  complaintId              String            @db.Uuid
+  modelName                String
+  modelVersion             String?
+  status                   AIExecutionStatus @default(QUEUED)
+  confidenceScore          Decimal?          @db.Decimal(5, 2)
+  aiRecommendation         String?
+  priorityScore            Decimal?          @db.Decimal(5, 2)
+  severityAnalysis         String?
+  severityScore            Decimal?          @db.Decimal(5, 2)
+  emergencyLevel           String?
+  estimatedResolutionHours Int?
+  suggestedDepartment      String?
+  suggestedOfficerId       String?           @db.Uuid
+  riskCategory             String?
+  classification           String?
+  priorityLevel            String?
+  escalationRecommendation String?
+  areaImpact               String?
+  spamRisk                 String?
+  rawOutput                Json?
+  processedOutput          Json?
+  metadata                 Json?
+  errorLog                 Json?
+  processingStartedAt      DateTime?
+  processingCompletedAt    DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+  complaint                Complaint         @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  suggestedOfficer         User?             @relation("SuggestedOfficerAIOutputs", fields: [suggestedOfficerId], references: [id], onDelete: SetNull)
+  resolutionPredictions    ResolutionPrediction[]
+
+  @@unique([complaintId, modelName])
+  @@index([complaintId])
+  @@index([modelName, status])
+  @@index([riskCategory])
+  @@index([priorityLevel])
+}
+
+model ModelAnalytics {
+  id                 String   @id @default(uuid()) @db.Uuid
+  modelName          String
+  date               DateTime @default(now())
+  totalRuns          Int      @default(0)
+  successfulRuns     Int      @default(0)
+  failedRuns         Int      @default(0)
+  avgConfidence      Decimal? @db.Decimal(5, 2)
+  avgProcessingMs    Int?
+  highRiskCount      Int      @default(0)
+  escalationCount    Int      @default(0)
+  metadata           Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([modelName, date])
+  @@index([modelName])
+  @@index([date])
+}
+
+model PredictionLog {
+  id             String            @id @default(uuid()) @db.Uuid
+  complaintId    String?           @db.Uuid
+  modelName      String
+  status         AIExecutionStatus
+  attempt        Int               @default(1)
+  durationMs     Int?
+  inputMetadata  Json?
+  outputMetadata Json?
+  errorMessage   String?
+  createdAt      DateTime          @default(now())
+  complaint      Complaint?        @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+
+  @@index([complaintId])
+  @@index([modelName, status])
+  @@index([createdAt])
+}
+
+model ResolutionPrediction {
+  id                       String         @id @default(uuid()) @db.Uuid
+  complaintId              String         @db.Uuid
+  aiModelOutputId          String?        @db.Uuid
+  modelName                String
+  estimatedResolutionHours Int
+  estimatedResolvedAt      DateTime?
+  actualResolutionHours    Decimal?       @db.Decimal(8, 2)
+  accuracyScore            Decimal?       @db.Decimal(5, 2)
+  priorityLevel            PriorityLevel?
+  riskCategory             String?
+  officerEfficiencyScore   Decimal?       @db.Decimal(5, 2)
+  performanceMetrics       Json?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  complaint                Complaint      @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  aiModelOutput            AIModelOutput? @relation(fields: [aiModelOutputId], references: [id], onDelete: SetNull)
+
+  @@index([complaintId])
+  @@index([modelName])
+  @@index([riskCategory])
+}

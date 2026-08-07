@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Prisma generated assets (if generated locally inside prisma folder)
+#/prisma/generated-client
+
+# OS and Editor configs
+.vscode/
+.DS_Store
+Thumbs.db
