@@ -2,24 +2,23 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Shield, Mail, Lock, User, ArrowRight, Loader2, AlertCircle, Building } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
+import { getRoleDashboard } from "../../lib/roleDashboard";
 
 export function AuthPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, session, signUp, signIn, signInWithGoogle, loading: authLoading } = useAuth();
 
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  // Supports being linked to directly in signup mode, e.g. from the landing
+  // page's "Register" call-to-action: /auth?mode=signup
+  const initialMode = searchParams.get("mode") === "signup" ? "signup" : "login";
+  const [authMode, setAuthMode] = useState<"login" | "signup">(initialMode);
   const [role, setRole] = useState<"citizen" | "officer" | "admin">("citizen");
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  const getRoleDashboard = (r: string) => {
-    if (r === "officer") return "/office";
-    if (r === "admin") return "/admin";
-    return "/dashboard";
-  };
 
   const handleGoogleSignIn = async () => {
     setError("");
@@ -123,7 +122,7 @@ export function AuthPage() {
             {authMode === "signup" && "Create your account"}
           </h2>
           <p className="mt-2 text-center text-sm text-slate-600 dark:text-slate-400">
-            {authMode === "login" && "Access the GovOps Intelligence Platform"}
+            {authMode === "login" && "Access the CivicAI Intelligence Platform"}
             {authMode === "signup" && "Join the smart governance network"}
           </p>
         </motion.div>
@@ -315,7 +314,7 @@ export function AuthPage() {
                 </div>
                 <div className="relative flex justify-center text-sm">
                   <span className="px-2 bg-white dark:bg-slate-900 text-slate-500">
-                    {authMode === "login" ? "New to GovOps?" : "Already have an account?"}
+                    {authMode === "login" ? "New to CivicAI?" : "Already have an account?"}
                   </span>
                 </div>
               </div>
@@ -335,7 +334,7 @@ export function AuthPage() {
             </div>
 
             <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-600">
-              Secured by GovOps Intelligence Platform
+              Secured by CivicAI Intelligence Platform
             </p>
           </motion.div>
         </AnimatePresence>

@@ -71,7 +71,7 @@ export function OfficerProfile() {
                 </Badge>
               </div>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                Field Operations Lead · GovOps North Command
+                Field Operations Lead · CivicAI North Command
               </p>
               <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
                 <span className="flex items-center gap-1">

@@ -45,7 +45,7 @@ export function OfficerSidebar({
                     {!isCollapsed && (
                         <div>
                             <h2 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight leading-none">
-                                GrievanceAI
+                                CivicAI
                             </h2>
                             <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-1">
                                 Officer Console

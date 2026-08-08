@@ -47,7 +47,7 @@ export function CitizenLayout() {
                                     Citizen Portal
                                 </span>
                                 <span className="text-[10px] text-slate-500 uppercase tracking-widest hidden sm:block mt-0.5">
-                                    GovOps Platform
+                                    CivicAI Platform
                                 </span>
                             </div>
                         </div>

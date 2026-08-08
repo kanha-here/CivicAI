@@ -37,7 +37,7 @@ export function Navbar() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                GrievanceAI
+                CivicAI
               </h2>
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Civic Intelligence Platform</p>
             </div>

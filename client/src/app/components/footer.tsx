@@ -122,7 +122,7 @@ export function Footer() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold dark:text-white text-gray-900">
-                  GrievanceAI
+                  CivicAI
                 </h3>
                 <p className="text-xs dark:text-cyan-300 text-cyan-600">
                   Civic Intelligence Platform
@@ -277,10 +277,10 @@ export function Footer() {
               <li className="flex items-start gap-2">
                 <Mail className="w-4 h-4 dark:text-gray-400 text-gray-600 mt-0.5" />
                 <a
-                  href="mailto:support@grievanceai.gov"
+                  href="mailto:support@civicai.app"
                   className="text-sm dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900 transition-colors"
                 >
-                  support@grievanceai.gov
+                  support@civicai.app
                 </a>
               </li>
               <li className="flex items-start gap-2">
@@ -314,7 +314,7 @@ export function Footer() {
         >
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-sm dark:text-gray-400 text-gray-600">
-              © 2026 GrievanceAI. All rights reserved. | Built for Smart Governance
+              © 2026 CivicAI. All rights reserved. | Built for Smart Governance
             </p>
             <div className="flex items-center gap-6">
               <a

@@ -59,9 +59,9 @@ export function AdminDashboardLayout() {
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight leading-none">
-                GrievanceAI
+                CivicAI
               </h2>
-              <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-1">GovOps Platform</p>
+              <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-1">CivicAI Platform</p>
             </div>
           </div>
 
@@ -95,7 +95,7 @@ export function AdminDashboardLayout() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-slate-900 dark:text-white">{user?.name || "Admin"}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{user?.email || "admin@govops.ai"}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{user?.email || "admin@civicai.app"}</p>
                 </div>
               </div>
               <Button

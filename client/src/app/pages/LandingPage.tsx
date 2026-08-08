@@ -1,26 +1,30 @@
-import { Navbar } from "../components/navbar";
-import { HeroSection } from "../components/hero-section";
-import { ComplaintSubmission } from "../components/complaint-submission";
-import { AIPipeline } from "../components/ai-pipeline";
-import { DashboardPreview } from "../components/dashboard-preview";
-import { OfficerWorkflow } from "../components/officer-workflow";
-import { TrustTransparency } from "../components/trust-transparency";
-import { Footer } from "../components/footer";
+import { LandingNavbar } from "../components/landing/landing-navbar";
+import { Hero } from "../components/landing/hero";
+import { StatsStrip } from "../components/landing/stats-strip";
+import { Features } from "../components/landing/features";
+import { HowItWorks } from "../components/landing/how-it-works";
+import { Departments } from "../components/landing/departments";
+import { Testimonials } from "../components/landing/testimonials";
+import { TrustBar } from "../components/landing/trust-bar";
+import { FinalCTA } from "../components/landing/final-cta";
+import { LandingFooter } from "../components/landing/landing-footer";
 import { FloatingChatbot } from "../components/floating-chatbot";
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen dark:bg-[#0B1020] bg-white transition-colors duration-300">
-      <Navbar />
+    <div className="min-h-screen">
+      <LandingNavbar />
       <main>
-        <HeroSection />
-        <ComplaintSubmission />
-        <AIPipeline />
-        <DashboardPreview />
-        <OfficerWorkflow />
-        <TrustTransparency />
+        <Hero />
+        <StatsStrip />
+        <Features />
+        <HowItWorks />
+        <Departments />
+        <Testimonials />
+        <TrustBar />
+        <FinalCTA />
       </main>
-      <Footer />
+      <LandingFooter />
       <FloatingChatbot />
     </div>
   );

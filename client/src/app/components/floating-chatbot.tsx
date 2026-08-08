@@ -7,7 +7,7 @@ import { dashboardService } from "../../services/dashboard.service";
 export function FloatingChatbot() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: "bot", content: "Hello! I am the GovOps AI Assistant. How can I help you today?" }
+    { role: "bot", content: "Hello! I am the CivicAI Assistant. How can I help you today?" }
   ]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -64,7 +64,7 @@ export function FloatingChatbot() {
                   <Bot className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white text-sm">GovOps Assistant</h3>
+                  <h3 className="font-semibold text-white text-sm">CivicAI Assistant</h3>
                   <p className="text-blue-100 text-xs">AI is online</p>
                 </div>
               </div>
