@@ -79,7 +79,6 @@ function severityLabel(priority?: string) {
 
 export function SubmitGrievance() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const cameraStreamRef = useRef<MediaStream | null>(null);
     const geoWatchRef = useRef<number | null>(null);
     const [step, setStep] = useState(1);
@@ -180,20 +179,81 @@ export function SubmitGrievance() {
         setIsWatchingLocation(false);
     };
 
-    const fileToDataUrl = (file: File) =>
-        new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result));
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
+    // Downscales an image (from a File or a live video frame) to a
+    // reasonable max dimension and re-encodes it as JPEG. This keeps the
+    // base64 payload we send to the server small (a few hundred KB instead
+    // of multiple MB), which is what was actually causing "Request failed
+    // with status code 413" on submit.
+    const MAX_PHOTO_DIMENSION = 1600;
+    const PHOTO_QUALITY = 0.82;
+
+    const drawToCompressedFile = (
+        source: CanvasImageSource,
+        sourceWidth: number,
+        sourceHeight: number,
+        fileName: string,
+    ): Promise<{ file: File; dataUrl: string }> =>
+        new Promise((resolve, reject) => {
+            const scale = Math.min(1, MAX_PHOTO_DIMENSION / Math.max(sourceWidth, sourceHeight));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(sourceWidth * scale);
+            canvas.height = Math.round(sourceHeight * scale);
+            const context = canvas.getContext("2d");
+            if (!context) {
+                reject(new Error("Could not process image."));
+                return;
+            }
+            context.drawImage(source, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(
+                (blob) => {
+                    if (!blob) {
+                        reject(new Error("Could not process image."));
+                        return;
+                    }
+                    const file = new File([blob], fileName, { type: "image/jpeg" });
+                    const reader = new FileReader();
+                    reader.onload = () => resolve({ file, dataUrl: String(reader.result) });
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                },
+                "image/jpeg",
+                PHOTO_QUALITY,
+            );
         });
 
+    const compressUploadedFile = async (file: File): Promise<{ file: File; dataUrl: string }> => {
+        const objectUrl = URL.createObjectURL(file);
+        try {
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = reject;
+                image.src = objectUrl;
+            });
+            return await drawToCompressedFile(img, img.naturalWidth, img.naturalHeight, file.name);
+        } finally {
+            URL.revokeObjectURL(objectUrl);
+        }
+    };
+
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        // Grab a plain reference to the actual input element up front.
+        // `e.currentTarget` is only guaranteed to be valid for the
+        // synchronous part of a React event handler — by the time the
+        // `await`s in compressUploadedFile() below finish, the synthetic
+        // event may already be gone, so reading e.currentTarget that late
+        // was throwing "Cannot set properties of null".
+        const inputEl = e.currentTarget;
         const files = Array.from(e.target.files || []);
         if (!files.length) return;
 
         const maxFiles = 5;
-        const maxSizeMb = 10;
+        // Every photo gets downscaled and re-compressed before it's sent
+        // (see compressUploadedFile), so this limit only needs to guard
+        // against picking an absurdly large or wrong file — real phone
+        // photos (commonly 10-20MB straight off the camera) should pass
+        // through fine and get compressed down from here.
+        const maxSizeMb = 25;
 
         const filtered = files.filter((f) => f.size <= maxSizeMb * 1024 * 1024);
 
@@ -206,12 +266,15 @@ export function SubmitGrievance() {
         }
 
         const nextUploads = await Promise.all(
-            filtered.slice(0, Math.max(0, maxFiles - uploads.length)).map(async (file) => ({
-                file,
-                url: URL.createObjectURL(file),
-                dataUrl: await fileToDataUrl(file),
-                source: "upload" as const,
-            })),
+            filtered.slice(0, Math.max(0, maxFiles - uploads.length)).map(async (originalFile) => {
+                const { file, dataUrl } = await compressUploadedFile(originalFile);
+                return {
+                    file,
+                    url: URL.createObjectURL(file),
+                    dataUrl,
+                    source: "upload" as const,
+                };
+            }),
         );
 
         setUploads((prev) => {
@@ -220,7 +283,7 @@ export function SubmitGrievance() {
         });
 
         // Allow re-selecting the same file
-        e.currentTarget.value = "";
+        if (inputEl) inputEl.value = "";
     };
 
     const removeImage = (index: number) => {
@@ -234,6 +297,16 @@ export function SubmitGrievance() {
 
     const startCamera = async () => {
         setCameraError(null);
+
+        if (!window.isSecureContext) {
+            setCameraError("Camera access requires a secure (HTTPS) connection.");
+            return;
+        }
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setCameraError("Camera capture isn't supported in this browser.");
+            return;
+        }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { ideal: "environment" } },
@@ -242,8 +315,23 @@ export function SubmitGrievance() {
             cameraStreamRef.current = stream;
             if (videoRef.current) videoRef.current.srcObject = stream;
             setIsCameraActive(true);
-        } catch {
-            setCameraError("Camera permission is required to capture live evidence.");
+        } catch (err) {
+            // Surface the real reason instead of one generic message — a
+            // permission denial, a camera already in use by another app/tab,
+            // and no camera being found all need different next steps from
+            // the person seeing this.
+            const name = err instanceof DOMException ? err.name : "";
+            const messages: Record<string, string> = {
+                NotAllowedError: "Camera permission was denied. Allow camera access for this site in your browser settings, then reload the page.",
+                NotFoundError: "No camera was found on this device.",
+                NotReadableError: "The camera is already in use by another app or browser tab. Close it and try again.",
+                OverconstrainedError: "No camera on this device matches the requested settings.",
+                SecurityError: "Camera access is blocked by your browser's security settings.",
+            };
+            setCameraError(
+                messages[name] ||
+                    `Couldn't access the camera${err instanceof Error && err.message ? `: ${err.message}` : "."}`,
+            );
         }
     };
 
@@ -254,33 +342,42 @@ export function SubmitGrievance() {
         setIsCameraActive(false);
     };
 
-    const capturePhoto = () => {
+    const capturePhoto = async () => {
         const video = videoRef.current;
-        const canvas = canvasRef.current;
-        if (!video || !canvas) return;
+        if (!video) return;
         const maxFiles = 5;
         if (uploads.length >= maxFiles) {
             setImageError(`Max ${maxFiles} images allowed.`);
             return;
         }
 
-        canvas.width = video.videoWidth || 1280;
-        canvas.height = video.videoHeight || 720;
-        const context = canvas.getContext("2d");
-        if (!context) return;
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
-        const file = new File([dataUrl], `live-photo-${Date.now()}.jpg`, { type: "image/jpeg" });
+        try {
+            // Note: this used to build the "file" directly from the base64
+            // data-URL string, which isn't decoded image data — it produced a
+            // corrupt image every time. drawToCompressedFile properly encodes
+            // a real JPEG from the video frame (and downscales it, which is
+            // also what keeps the submit payload from tripping the server's
+            // size limit).
+            const { file, dataUrl } = await drawToCompressedFile(
+                video,
+                video.videoWidth || 1280,
+                video.videoHeight || 720,
+                `live-photo-${Date.now()}.jpg`,
+            );
 
-        setUploads((prev) => [
-            ...prev,
-            {
-                file,
-                url: dataUrl,
-                dataUrl,
-                source: "camera",
-            },
-        ]);
+            setUploads((prev) => [
+                ...prev,
+                {
+                    file,
+                    url: dataUrl,
+                    dataUrl,
+                    source: "camera",
+                },
+            ]);
+            setImageError(null);
+        } catch {
+            setImageError("Couldn't capture that photo. Please try again.");
+        }
     };
 
     return (
@@ -591,7 +688,7 @@ export function SubmitGrievance() {
                                                     Live camera preview
                                                 </div>
                                             )}
-                                            <canvas ref={canvasRef} className="hidden" />
+
                                         </div>
                                         <div className="mt-3 grid grid-cols-2 gap-2">
                                             <Button
@@ -779,6 +876,15 @@ export function SubmitGrievance() {
                                     setSubmitError("Please add a more detailed complaint description before continuing.");
                                     return;
                                 }
+                                if (step === 2 && uploads.length === 0) {
+                                    setSubmitError("Please attach at least one photo as evidence before continuing.");
+                                    return;
+                                }
+                                if (step === 2 && !location.trim()) {
+                                    setSubmitError("Please detect or enter a location before continuing.");
+                                    return;
+                                }
+                                setSubmitError(null);
                                 setStep(step + 1);
                                 return;
                             }
