@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Camera, MapPin, Send, UploadCloud, Info, Mic } from "lucide-react";
+import { Camera, MapPin, Send, UploadCloud, Info, Mic, ShieldCheck, ShieldAlert, ShieldQuestion } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { complaintService } from "../../../services/complaint.service";
-import { speechLanguages, useAzureSpeech } from "../../../hooks/useAzureSpeech";
+import { speechLanguages } from "../../../hooks/useAzureSpeech";
+import { useVoiceTranscription } from "../../../hooks/useVoiceTranscription";
+import { verifyImageEvidence, type ImageVerificationResult } from "../../../services/imageVerification.service";
 
 type UploadItem = {
     file: File;
@@ -101,6 +103,9 @@ export function SubmitGrievance() {
     const [cameraError, setCameraError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [imageVerification, setImageVerification] = useState<ImageVerificationResult | null>(null);
+    const [imageVerificationError, setImageVerificationError] = useState<string | null>(null);
+    const [isVerifyingImage, setIsVerifyingImage] = useState(false);
     const [predictionResult, setPredictionResult] = useState<null | {
         complaint: string;
         validity?: string;
@@ -118,7 +123,7 @@ export function SubmitGrievance() {
         error?: string;
     }>(null);
 
-    const speech = useAzureSpeech({
+    const speech = useVoiceTranscription({
         language: speechLanguage,
         onText: (text) => setDescription((prev) => `${prev}${prev ? " " : ""}${text}`),
     });
@@ -563,10 +568,15 @@ export function SubmitGrievance() {
                                                 variant="outline"
                                                 size="sm"
                                                 onClick={speech.toggleListening}
+                                                disabled={speech.isTranscribing}
                                                 className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-medium"
                                             >
                                                 <Mic className="w-4 h-4 mr-2" />
-                                                {speech.isListening ? "Stop Voice" : "Speak Complaint"}
+                                                {speech.isTranscribing
+                                                    ? "Transcribing\u2026"
+                                                    : speech.isListening
+                                                      ? "Stop Voice"
+                                                      : "Speak Complaint"}
                                             </Button>
                                         </div>
                                         <textarea
@@ -846,6 +856,50 @@ export function SubmitGrievance() {
                                     </div>
                                 </div>
                             </div>
+
+                            <div className="border border-slate-200 dark:border-slate-800 rounded-md bg-white dark:bg-slate-950 p-6 space-y-3 shadow-sm">
+                                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 border-b border-slate-100 dark:border-slate-800 pb-2">
+                                    Image Evidence Verification
+                                </h3>
+                                {isVerifyingImage && (
+                                    <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 pt-1">
+                                        <ShieldQuestion className="w-4 h-4 animate-pulse" />
+                                        Checking whether your photo matches the description
+                                        — this can take a little while on first use.
+                                    </div>
+                                )}
+                                {!isVerifyingImage && imageVerification && (
+                                    <div
+                                        className={`flex items-start gap-3 pt-1 ${
+                                            imageVerification.image_supports_complaint
+                                                ? "text-emerald-700 dark:text-emerald-400"
+                                                : "text-amber-700 dark:text-amber-400"
+                                        }`}
+                                    >
+                                        {imageVerification.image_supports_complaint ? (
+                                            <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5" />
+                                        ) : (
+                                            <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
+                                        )}
+                                        <div className="text-sm">
+                                            <p className="font-semibold capitalize">
+                                                {imageVerification.verification_status.replace("_", " ")} (
+                                                {Math.round(imageVerification.image_match_score * 100)}% similarity)
+                                            </p>
+                                            <p className="text-slate-500 dark:text-slate-400 mt-0.5">
+                                                {imageVerification.image_supports_complaint
+                                                    ? "The photo appears consistent with your description."
+                                                    : "The photo doesn't clearly match your description — you can still submit, but consider adding a clearer photo."}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                                {!isVerifyingImage && !imageVerification && imageVerificationError && (
+                                    <p className="text-sm text-slate-500 dark:text-slate-400 pt-1">
+                                        Couldn't verify the photo automatically ({imageVerificationError}). You can still submit — an officer will review the evidence manually.
+                                    </p>
+                                )}
+                            </div>
                         </motion.div>
                     )}
                 </div>
@@ -886,6 +940,21 @@ export function SubmitGrievance() {
                                 }
                                 setSubmitError(null);
                                 setStep(step + 1);
+
+                                // Kick off image-text verification in the background once
+                                // evidence is complete — it can take a while on a cold
+                                // start, so don't block the step transition on it. The
+                                // Review step below shows its own loading/result state.
+                                if (step === 2 && uploads[0] && !imageVerification && !isVerifyingImage) {
+                                    setIsVerifyingImage(true);
+                                    setImageVerificationError(null);
+                                    verifyImageEvidence(description, uploads[0].file)
+                                        .then((outcome) => {
+                                            if (outcome.ok) setImageVerification(outcome.result);
+                                            else setImageVerificationError(outcome.error);
+                                        })
+                                        .finally(() => setIsVerifyingImage(false));
+                                }
                                 return;
                             }
 
