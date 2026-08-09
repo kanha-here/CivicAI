@@ -6,6 +6,7 @@ import { complaintService } from "../../../services/complaint.service";
 import { speechLanguages } from "../../../hooks/useAzureSpeech";
 import { useVoiceTranscription } from "../../../hooks/useVoiceTranscription";
 import { verifyImageEvidence, type ImageVerificationResult } from "../../../services/imageVerification.service";
+import { warmUpModelServices } from "../../../services/modelWarmup.service";
 
 type UploadItem = {
     file: File;
@@ -127,6 +128,14 @@ export function SubmitGrievance() {
         language: speechLanguage,
         onText: (text) => setDescription((prev) => `${prev}${prev ? " " : ""}${text}`),
     });
+
+    useEffect(() => {
+        // Best-effort: start waking the voice-transcription and
+        // image-verification model services as soon as this page opens,
+        // so they've had a head start by the time the citizen actually
+        // records a voice note or uploads a photo.
+        warmUpModelServices();
+    }, []);
 
     useEffect(() => {
         return () => {
