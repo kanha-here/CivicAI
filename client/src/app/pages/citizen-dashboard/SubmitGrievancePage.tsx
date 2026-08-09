@@ -913,8 +913,14 @@ export function SubmitGrievance() {
                                 });
 
                                 setPredictionResult({
-                                    complaint: complaint.id,
                                     ...normalizePrediction(complaint),
+                                    // Must come after the spread: normalizePrediction() can
+                                    // return the raw `prediction` object from the server,
+                                    // which (matching the real backend's shape) has its own
+                                    // `complaint` field holding the full complaint text, not
+                                    // an id. Setting this last guarantees the tracking id
+                                    // shown in the UI is always the actual complaint id.
+                                    complaint: complaint.id,
                                     whatsappNotification: complaint.whatsappNotification,
                                 });
 
@@ -922,8 +928,8 @@ export function SubmitGrievance() {
                                     .then((latest) => {
                                         if (!latest) return;
                                         setPredictionResult({
-                                            complaint: latest.id,
                                             ...normalizePrediction(latest),
+                                            complaint: latest.id,
                                             whatsappNotification: complaint.whatsappNotification,
                                         });
                                     })

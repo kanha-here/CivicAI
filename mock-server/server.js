@@ -168,27 +168,184 @@ function currentUser(req) {
   }
 }
 
-const URGENT_WORDS = ['danger', 'urgent', 'fire', 'accident', 'injur', 'collapse', 'leak', 'electrocut', 'flood'];
+// ---------------------------------------------------------------------------
+// AI classification — ported from the real server's fallback heuristic
+// (server/src/services/prediction.service.js: textHeuristics +
+// predictModel1Heuristic). The real system calls two external FastAPI
+// model services for this (MODEL_1_AUTHENTICITY_PRIORITY at POST /predict,
+// MODEL_2_CLASSIFICATION_SEVERITY at POST /predict-department) and only
+// falls back to this exact heuristic when those services are unreachable.
+// Since this demo has no such model services deployed, we run the
+// heuristic path every time — but keep it faithful to the real logic and
+// field names, so swapping in the real FASTAPI_URL/MODEL2_URL later is a
+// drop-in change, not a rewrite.
+//
+// Improvements made over the original heuristic:
+//  - Department keyword coverage expanded from 4 categories to all 6 used
+//    by this app (added Law & Order, Public Services / Civic Services),
+//    plus common Hindi/Hinglish terms citizens actually type.
+//  - Department routing now returns a full probability distribution
+//    (softmax over keyword-match scores) instead of a single guess, same
+//    shape the real Model 2's `probabilities` field is meant to hold.
+//  - Added estimatedResolutionHours / estimatedResolvedAt, matching the
+//    real ResolutionPrediction the AI orchestrator writes.
+// ---------------------------------------------------------------------------
 
-function classifyComplaint(description, category) {
-  const text = (description || '').toLowerCase();
-  const isUrgent = URGENT_WORDS.some((w) => text.includes(w));
-  const isDetailed = text.length >= 120;
+const DEPARTMENT_TERMS = {
+  'Electricity': ['light', 'electric', 'power', 'transformer', 'wire', 'shock', 'spark', 'bijli', 'current', 'streetlight'],
+  'Water Supply': ['water', 'pipe', 'drain', 'leak', 'supply', 'tanker', 'paani', 'nal', 'tap'],
+  'Sanitation': ['garbage', 'waste', 'sewage', 'sanitation', 'trash', 'kachra', 'gutter', 'drainage', 'dirty', 'smell'],
+  'Roads & Transport': ['road', 'pothole', 'traffic', 'signal', 'bridge', 'footpath', 'sadak', 'gaddha', 'vehicle', 'bus stop'],
+  'Public Services': ['certificate', 'record', 'document', 'office', 'registration', 'amenities', 'park', 'school', 'hospital'],
+  'Law & Order': ['theft', 'crime', 'harassment', 'violence', 'safety', 'police', 'dispute', 'unsafe', 'threat'],
+};
 
-  const priority = isUrgent ? 'HIGH' : isDetailed ? 'MEDIUM' : 'LOW';
-  const priority_confidence = isUrgent ? 0.91 : isDetailed ? 0.78 : 0.64;
-  const validity = text.length >= 20 ? 'VALID' : 'NEEDS_REVIEW';
-  const validity_confidence = text.length >= 20 ? 0.88 : 0.55;
-  const trust_score = Math.min(0.97, 0.6 + Math.min(text.length, 300) / 1000 + (isUrgent ? 0.1 : 0));
+const CRITICAL_TERMS = ['fire', 'death', 'injury', 'hospital', 'electrocution', 'collapse', 'flood', 'sewage overflow', 'gas leak', 'accident'];
+const HIGH_TERMS = ['urgent', 'danger', 'dangerous', 'blocked', 'contaminated', 'overflow', 'broken', 'no water', 'power outage', 'sparking'];
+const SPAM_TERMS = ['buy now', 'lottery', 'crypto', 'http://', 'https://', 'free money'];
+
+function softmax(scores) {
+  const values = Object.values(scores);
+  const max = Math.max(...values, 0);
+  const exps = Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, Math.exp(v - max)]));
+  const sum = Object.values(exps).reduce((a, b) => a + b, 0) || 1;
+  return Object.fromEntries(Object.entries(exps).map(([k, v]) => [k, v / sum]));
+}
+
+function textHeuristics(complaintText) {
+  const text = String(complaintText || '').toLowerCase();
+
+  const criticalHits = CRITICAL_TERMS.filter((term) => text.includes(term)).length;
+  const highHits = HIGH_TERMS.filter((term) => text.includes(term)).length;
+  const spamHits = SPAM_TERMS.filter((term) => text.includes(term)).length;
+
+  const severityScore = Math.min(100, 35 + criticalHits * 25 + highHits * 12 + Math.min(text.length / 80, 20));
+  const priorityLevel = severityScore >= 85 ? 'CRITICAL' : severityScore >= 65 ? 'HIGH' : severityScore >= 40 ? 'MEDIUM' : 'LOW';
+
+  // Score every department by keyword hits, then turn that into a proper
+  // probability distribution (this is the "improvement" over the real
+  // heuristic's single if/else chain, which could only ever pick one
+  // department with no confidence signal).
+  const deptScores = Object.fromEntries(
+    Object.entries(DEPARTMENT_TERMS).map(([dept, terms]) => [dept, terms.filter((t) => text.includes(t)).length]),
+  );
+  const hasAnyDeptHit = Object.values(deptScores).some((v) => v > 0);
+  const probabilities = hasAnyDeptHit
+    ? softmax(deptScores)
+    : softmax(Object.fromEntries(Object.keys(DEPARTMENT_TERMS).map((d) => [d, d === 'Public Services' ? 0.5 : 0])));
+  const suggestedDepartment = Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0][0];
+
+  return {
+    classification: suggestedDepartment,
+    severity_score: Number(severityScore.toFixed(2)),
+    severity_level: priorityLevel,
+    emergency_level: priorityLevel === 'CRITICAL' ? 'Immediate' : priorityLevel === 'HIGH' ? 'Elevated' : 'Routine',
+    suggested_department: suggestedDepartment,
+    priority_level: priorityLevel,
+    area_impact: criticalHits ? 'Multi-household or safety-sensitive impact possible' : highHits ? 'Localized impact likely' : 'Single-location impact likely',
+    ai_remarks: `${priorityLevel} priority complaint routed to ${suggestedDepartment}.`,
+    escalation_recommendation: ['CRITICAL', 'HIGH'].includes(priorityLevel) ? 'Escalate to duty supervisor and dispatch field verification.' : 'Route through normal officer queue.',
+    fake_spam_risk: spamHits ? 'HIGH' : text.length < 12 ? 'MEDIUM' : 'LOW',
+    confidence: Math.max(62, Math.min(96, 72 + criticalHits * 6 + highHits * 4 - spamHits * 12)),
+    probabilities: Object.entries(probabilities)
+      .map(([department, probability]) => ({ department, probability: Number(probability.toFixed(3)) }))
+      .sort((a, b) => b.probability - a.probability),
+  };
+}
+
+function predictModel1Heuristic(complaintText) {
+  const heuristic = textHeuristics(complaintText);
+  const spamRisk = String(heuristic.fake_spam_risk || '').toUpperCase();
+  const validity = spamRisk === 'HIGH' ? 'Fake' : 'Authentic';
+  const validityConfidence = spamRisk === 'HIGH' ? 82 : Math.min(94, Math.max(68, heuristic.confidence + 4));
+  const priorityConfidence = Math.min(94, Math.max(65, heuristic.confidence));
+  const trustScore = validity === 'Fake' ? 0.28 : Number(Math.min(0.97, Math.max(0.62, priorityConfidence / 100)).toFixed(3));
 
   return {
     validity,
-    validity_confidence,
-    priority,
-    priority_confidence,
-    trust_score: Number(trust_score.toFixed(2)),
-    category_predicted: category || 'General',
+    validity_confidence: Number(validityConfidence.toFixed(2)),
+    priority: heuristic.priority_level,
+    priority_confidence: Number(priorityConfidence.toFixed(2)),
+    trust_score: trustScore,
   };
+}
+
+const PRIORITY_SCORE = { LOW: 25, MEDIUM: 50, HIGH: 75, CRITICAL: 95 };
+
+function estimateResolutionHours(priority, severityScore = 50) {
+  if (priority === 'CRITICAL') return 4;
+  if (priority === 'HIGH') return severityScore >= 75 ? 8 : 12;
+  if (priority === 'MEDIUM') return 48;
+  return 96;
+}
+
+// Simulates the real AI orchestrator's background queue: the citizen gets
+// an immediate heuristic triage synchronously (see POST /complaints below),
+// then a couple of seconds later this "completes" the full two-model
+// analysis — matching the real system's async UX instead of faking instant
+// omniscient results.
+function runAIOrchestrator(complaintId) {
+  setTimeout(() => {
+    const complaint = complaints.get(complaintId);
+    if (!complaint) return;
+
+    const text = `${complaint.title}. ${complaint.description}`;
+    const model1 = predictModel1Heuristic(text);
+    const heuristic = textHeuristics(text);
+    const estimatedResolutionHours = estimateResolutionHours(model1.priority, heuristic.severity_score);
+
+    complaint.aiModelOutputs = [
+      {
+        id: randomUUID(),
+        modelName: 'MODEL_1_AUTHENTICITY_PRIORITY',
+        modelVersion: '2.0.0-heuristic',
+        status: 'COMPLETED',
+        confidenceScore: model1.validity_confidence,
+        priorityScore: PRIORITY_SCORE[model1.priority],
+        priorityLevel: model1.priority,
+        severityAnalysis: `Authenticity: ${model1.validity}; priority: ${model1.priority}.`,
+        severityScore: PRIORITY_SCORE[model1.priority],
+        emergencyLevel: model1.priority === 'CRITICAL' ? 'Immediate' : model1.priority === 'HIGH' ? 'Elevated' : 'Routine',
+        estimatedResolutionHours,
+        riskCategory: model1.validity === 'Fake' ? 'INTEGRITY_REVIEW' : model1.priority === 'CRITICAL' ? 'PUBLIC_SAFETY' : model1.priority === 'HIGH' ? 'SLA_RISK' : 'STANDARD',
+        classification: model1.validity,
+        spamRisk: model1.validity === 'Fake' ? 'HIGH' : 'LOW',
+        aiRecommendation:
+          model1.validity === 'Fake'
+            ? 'Hold for authenticity review before dispatch.'
+            : `Treat as ${model1.priority.toLowerCase()} priority and continue triage.`,
+        escalationRecommendation: ['CRITICAL', 'HIGH'].includes(model1.priority) ? 'Escalate if officer assignment is delayed.' : 'No escalation required.',
+        processedOutput: model1,
+      },
+      {
+        id: randomUUID(),
+        modelName: 'MODEL_2_CLASSIFICATION_SEVERITY',
+        modelVersion: '1.0.0-heuristic',
+        status: 'COMPLETED',
+        confidenceScore: heuristic.confidence,
+        priorityScore: PRIORITY_SCORE[heuristic.priority_level],
+        priorityLevel: heuristic.priority_level,
+        severityAnalysis: heuristic.ai_remarks,
+        severityScore: heuristic.severity_score,
+        emergencyLevel: heuristic.emergency_level,
+        estimatedResolutionHours,
+        suggestedDepartment: heuristic.suggested_department,
+        riskCategory: heuristic.fake_spam_risk === 'HIGH' ? 'INTEGRITY_REVIEW' : heuristic.priority_level === 'CRITICAL' ? 'PUBLIC_SAFETY' : heuristic.priority_level === 'HIGH' ? 'SLA_RISK' : 'STANDARD',
+        classification: heuristic.classification,
+        areaImpact: heuristic.area_impact,
+        spamRisk: heuristic.fake_spam_risk,
+        aiRecommendation: heuristic.ai_remarks,
+        escalationRecommendation: heuristic.escalation_recommendation,
+        processedOutput: heuristic,
+      },
+    ];
+
+    if (PRIORITY_SCORE[model1.priority] > PRIORITY_SCORE[complaint.priority?.toUpperCase()]) {
+      complaint.priority = model1.priority.toLowerCase();
+    }
+    complaint.department = { id: 'dept-auto', name: heuristic.suggested_department };
+    complaint.updatedAt = new Date().toISOString();
+  }, 2500);
 }
 
 app.post('/api/complaints', (req, res) => {
@@ -202,31 +359,40 @@ app.post('/api/complaints', (req, res) => {
 
   const id = randomUUID();
   const now = new Date().toISOString();
-  const prediction = classifyComplaint(description, category);
+  const predictionText = `${title || category || 'Complaint'}. ${description}`;
+
+  // Immediate heuristic triage — returned synchronously, same as the real
+  // server's createComplaint() does before the background AI queue runs.
+  const immediatePrediction = predictModel1Heuristic(predictionText);
 
   const complaint = {
     id,
     title: title || `${category || 'Complaint'} report`,
     description,
     status: 'submitted',
-    priority: priority || prediction.priority.toLowerCase(),
+    priority: priority || immediatePrediction.priority.toLowerCase(),
     createdAt: now,
     updatedAt: now,
-    department: { id: 'dept-1', name: routeDepartment(category) },
-    prediction: { ...prediction, status: 'COMPLETE' },
-    aiModelOutputs: [
+    department: { id: 'dept-pending', name: routeDepartment(category) },
+    prediction: {
+      complaint: predictionText,
+      ...immediatePrediction,
+      unavailable: false,
+      fallbackUsed: true,
+      message: 'Immediate AI triage generated',
+    },
+    predictions: [
       {
-        id: randomUUID(),
-        modelName: 'MODEL_1_AUTHENTICITY_PRIORITY',
-        status: 'COMPLETE',
-        confidenceScore: prediction.validity_confidence,
-        aiRecommendation: prediction.priority === 'HIGH' ? 'Escalate immediately' : 'Route to department queue',
-        priorityScore: prediction.priority_confidence,
-        classification: prediction.validity,
-        priorityLevel: prediction.priority,
-        processedOutput: prediction,
+        validity: immediatePrediction.validity,
+        validityConfidence: immediatePrediction.validity_confidence,
+        priority: immediatePrediction.priority,
+        priorityConfidence: immediatePrediction.priority_confidence,
+        trustScore: immediatePrediction.trust_score,
       },
     ],
+    // Populated a couple seconds later by runAIOrchestrator — the UI polls
+    // for this, matching the real system's async model pipeline.
+    aiModelOutputs: [],
     attachments: (attachments || []).map((a) => ({
       id: randomUUID(),
       fileUrl: a.fileUrl,
@@ -234,15 +400,6 @@ app.post('/api/complaints', (req, res) => {
       createdAt: now,
     })),
     feedback: [],
-    predictions: [
-      {
-        validity: prediction.validity,
-        validityConfidence: prediction.validity_confidence,
-        priority: prediction.priority,
-        priorityConfidence: prediction.priority_confidence,
-        trustScore: prediction.trust_score,
-      },
-    ],
     statusHistory: [{ id: randomUUID(), oldStatus: null, newStatus: 'submitted', createdAt: now }],
     ownerEmail: user.email,
     subCategory: subCategory || null,
@@ -250,6 +407,7 @@ app.post('/api/complaints', (req, res) => {
   };
 
   complaints.set(id, complaint);
+  runAIOrchestrator(id);
   res.json(ok(complaint));
 });
 
@@ -278,11 +436,12 @@ app.get('/api/complaints', (req, res) => {
 
 function routeDepartment(category) {
   const c = (category || '').toLowerCase();
-  if (c.includes('infrastructure') || c.includes('road')) return 'Public Works';
+  if (c.includes('infrastructure') || c.includes('road')) return 'Roads & Transport';
   if (c.includes('water')) return 'Water Supply';
   if (c.includes('sanitation')) return 'Sanitation';
-  if (c.includes('law') || c.includes('safety')) return 'Public Safety';
-  return 'Civic Services';
+  if (c.includes('electric') || c.includes('power')) return 'Electricity';
+  if (c.includes('law') || c.includes('safety')) return 'Law & Order';
+  return 'Public Services';
 }
 
 // Generic catch-all for any other /api/* GET/POST -> empty success envelope
