@@ -100,24 +100,13 @@ export function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0B1020] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <motion.div
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-            className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20"
-          >
-            <Shield className="w-6 h-6 text-white" />
-          </motion.div>
-        </div>
+
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+          <h2 className="text-center text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             {authMode === "login" && "Sign in to your account"}
             {authMode === "signup" && "Create your account"}
           </h2>
@@ -128,7 +117,7 @@ export function AuthPage() {
         </motion.div>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      
         <AnimatePresence mode="wait">
           <motion.div
             key={authMode}
