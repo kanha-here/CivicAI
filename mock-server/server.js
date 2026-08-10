@@ -402,6 +402,9 @@ async function runAIOrchestrator(complaintId) {
     priority,
     priority_confidence: model1.priority_confidence,
     trust_score: model1.trust_score,
+    classification: department || 'Pending',
+    classification_confidence: departmentConfidence,
+    suggestedDepartment: department || null,
     modelUsed: Boolean(model1.modelUsed),
     fallbackUsed: Boolean(model1.fallbackUsed),
     modelUnavailable: Boolean(model1.modelUnavailable),
@@ -415,6 +418,9 @@ async function runAIOrchestrator(complaintId) {
     priority,
     priorityConfidence: model1.priority_confidence,
     trustScore: model1.trust_score,
+    classification: department || 'Pending',
+    classificationConfidence: departmentConfidence,
+    suggestedDepartment: department || null,
   }];
 
   complaint.priority = priority.toLowerCase();

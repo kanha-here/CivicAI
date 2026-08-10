@@ -50,20 +50,41 @@ function normalizePrediction(complaint: any) {
     const model1 = complaint.aiModelOutputs?.find(
         (output: any) => output.modelName === "MODEL_1_AUTHENTICITY_PRIORITY",
     );
-    if (model1) {
-        const processed = model1.processedOutput || {};
+    const model2 = complaint.aiModelOutputs?.find(
+        (output: any) => output.modelName === "MODEL_2_CLASSIFICATION_SEVERITY",
+    );
+    if (model1 || model2) {
+        const processed1 = model1?.processedOutput || {};
+        const processed2 = model2?.processedOutput || {};
         const status = complaint.prediction?.status && complaint.prediction.status !== "QUEUED"
             ? complaint.prediction.status
-            : model1.status || complaint.aiStatus || "COMPLETED";
+            : model1?.status || model2?.status || complaint.aiStatus || "COMPLETED";
+        const classification =
+            model2?.classification
+            || model2?.suggestedDepartment
+            || processed2.predicted_department
+            || processed2.department
+            || model2?.processedOutput?.predicted_department
+            || "Pending";
+        const classificationConfidence = Number(
+            model2?.confidenceScore
+            ?? processed2.confidence
+            ?? processed2.classificationConfidence
+            ?? 0,
+        );
+
         return {
-            validity: processed.validity || model1.classification,
-            validity_confidence: Number(processed.validityConfidence ?? processed.validity_confidence ?? model1.confidenceScore ?? model1.validityConfidence ?? 0),
-            priority: processed.priority || model1.priorityLevel,
-            priority_confidence: Number(processed.priorityConfidence ?? processed.priority_confidence ?? model1.priorityScore ?? model1.priorityConfidence ?? 0),
-            trust_score: processed.trustScore ?? processed.trust_score,
+            validity: processed1.validity || model1?.classification,
+            validity_confidence: Number(processed1.validityConfidence ?? processed1.validity_confidence ?? model1?.confidenceScore ?? model1?.validityConfidence ?? 0),
+            priority: processed1.priority || model1?.priorityLevel,
+            priority_confidence: Number(processed1.priorityConfidence ?? processed1.priority_confidence ?? model1?.priorityScore ?? model1?.priorityConfidence ?? 0),
+            trust_score: processed1.trustScore ?? processed1.trust_score,
+            classification,
+            classification_confidence: classificationConfidence,
+            suggestedDepartment: classification,
             status,
-            unavailable: model1.status === "FAILED",
-            error: model1.errorLog?.message || model1.error || complaint.prediction?.error,
+            unavailable: (model1?.status === "FAILED") || (model2?.status === "FAILED"),
+            error: model1?.errorLog?.message || model2?.errorLog?.message || model1?.error || model2?.error || complaint.prediction?.error,
         };
     }
 
@@ -137,6 +158,9 @@ export function SubmitGrievance() {
         priority?: string;
         priority_confidence?: number;
         trust_score?: number;
+        classification?: string;
+        classification_confidence?: number;
+        suggestedDepartment?: string;
         whatsappNotification?: {
             sent?: boolean;
             reason?: string;
@@ -1093,6 +1117,12 @@ export function SubmitGrievance() {
                                     <span className="block text-xs text-slate-500">Priority</span>
                                     <span className="font-medium text-slate-900 dark:text-white">
                                         {severityLabel(predictionResult.priority)}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="block text-xs text-slate-500">Classification</span>
+                                    <span className="font-medium text-slate-900 dark:text-white">
+                                        {predictionResult.classification || predictionResult.suggestedDepartment || "Model pending"}
                                     </span>
                                 </div>
                                 <div>
