@@ -983,6 +983,8 @@ export function SubmitGrievance() {
                                     priority: "medium",
                                     category: primaryCategory,
                                     subCategory,
+                                    location,
+                                    imageVerification,
                                     attachments: uploads.map((item) => ({
                                         fileUrl: item.dataUrl,
                                         fileName: item.file.name,
