@@ -404,10 +404,26 @@ export function SubmitGrievance() {
         }
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: "environment" } },
-                audio: false,
-            });
+            let stream: MediaStream;
+            try {
+                // Prefer the rear camera on phones ("ideal" is a soft hint,
+                // so this alone should never fail just because a device
+                // only has one camera).
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" } },
+                    audio: false,
+                });
+            } catch (innerErr) {
+                // Some browsers/webcams reject facingMode constraints
+                // outright (mostly seen on laptops with a single front
+                // camera and certain external USB webcams) even though a
+                // camera is genuinely available. Retry once with no
+                // constraints before giving up, instead of surfacing a
+                // false "no camera" error in that case.
+                const innerName = innerErr instanceof DOMException ? innerErr.name : "";
+                if (innerName !== "OverconstrainedError" && innerName !== "NotFoundError") throw innerErr;
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            }
             cameraStreamRef.current = stream;
             if (videoRef.current) videoRef.current.srcObject = stream;
             setIsCameraActive(true);
@@ -419,7 +435,12 @@ export function SubmitGrievance() {
             const name = err instanceof DOMException ? err.name : "";
             const messages: Record<string, string> = {
                 NotAllowedError: "Camera permission was denied. Allow camera access for this site in your browser settings, then reload the page.",
-                NotFoundError: "No camera was found on this device.",
+                // NotFoundError also fires when a real camera exists but is
+                // blocked at the OS level (e.g. Windows Settings > Privacy
+                // > Camera, or macOS System Settings > Privacy & Security >
+                // Camera), not only when there's genuinely no hardware —
+                // so point people at both possibilities.
+                NotFoundError: "No camera was found. If this device does have one, check that camera access isn't blocked for your browser in your system's privacy settings.",
                 NotReadableError: "The camera is already in use by another app or browser tab. Close it and try again.",
                 OverconstrainedError: "No camera on this device matches the requested settings.",
                 SecurityError: "Camera access is blocked by your browser's security settings.",
