@@ -157,9 +157,28 @@ export function useRealtimeComplaints(): RealtimeState {
       const statusHistory = complaint.statusHistory?.[0];
       const model1 = complaint.aiModelOutputs?.find((output: any) => output.modelName === "MODEL_1_AUTHENTICITY_PRIORITY");
       const model2 = complaint.aiModelOutputs?.find((output: any) => output.modelName === "MODEL_2_CLASSIFICATION_SEVERITY");
+      const directPrediction = complaint.prediction;
       const savedPrediction = complaint.predictions?.[0];
+      const resolvedPrediction = directPrediction && (
+        directPrediction.status !== "QUEUED"
+        || directPrediction.validity
+        || directPrediction.priority
+        || directPrediction.validity_confidence != null
+        || directPrediction.priority_confidence != null
+        || directPrediction.trust_score != null
+      )
+        ? directPrediction
+        : savedPrediction || null;
       const resolution = complaint.resolutionPredictions?.[0];
-      const confidenceScore = Number(model2?.confidenceScore || model1?.confidenceScore || complaint.predictions?.[0]?.priorityConfidence || complaint.prediction?.priority_confidence || 75);
+      const confidenceScore = Number(
+        model2?.confidenceScore
+        || model1?.confidenceScore
+        || resolvedPrediction?.priority_confidence
+        || resolvedPrediction?.priorityConfidence
+        || complaint.predictions?.[0]?.priorityConfidence
+        || complaint.prediction?.priority_confidence
+        || 75,
+      );
       const estimatedHours = Number(model2?.estimatedResolutionHours || resolution?.estimatedResolutionHours || 24);
       const isAssignedToCurrentOfficer = Boolean(currentUser?.id && complaint.assignedOfficerId === currentUser.id);
       const canShareProgress = isAssignedToCurrentOfficer && !["RESOLVED", "CLOSED", "REJECTED"].includes(complaint.status);
@@ -185,6 +204,7 @@ export function useRealtimeComplaints(): RealtimeState {
         aiRecommendation:
           model2?.aiRecommendation ||
           model1?.aiRecommendation ||
+          resolvedPrediction?.priority ||
           (complaint.status === "RESOLVED" || complaint.status === "CLOSED"
             ? "Work completed and ready for citizen confirmation."
             : complaint.department?.name

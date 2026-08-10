@@ -110,15 +110,36 @@ export function CitizenOverview() {
         [selectedComplaint],
     );
     const selectedPrediction = useMemo(() => {
+        const directPrediction = selectedComplaint?.prediction;
+        const hasDirectPredictionValues = !!(
+            directPrediction && (
+                directPrediction.status !== "QUEUED"
+                || directPrediction.validity
+                || directPrediction.priority
+                || directPrediction.validity_confidence != null
+                || directPrediction.priority_confidence != null
+                || directPrediction.trust_score != null
+            )
+        );
+        if (hasDirectPredictionValues) {
+            return {
+                validity: directPrediction.validity,
+                priority: directPrediction.priority,
+                trustScore: directPrediction.trust_score,
+            };
+        }
+
         const savedPrediction = selectedComplaint?.predictions?.[0];
-        if (savedPrediction) return savedPrediction;
+        if (savedPrediction && (savedPrediction.validity || savedPrediction.priority || savedPrediction.validityConfidence != null || savedPrediction.priorityConfidence != null || savedPrediction.trustScore != null)) {
+            return savedPrediction;
+        }
 
         if (selectedModel1) {
             const processed = selectedModel1.processedOutput || {};
             return {
                 validity: (processed.validity as string | undefined) || selectedModel1.classification,
                 priority: (processed.priority as string | undefined) || selectedModel1.priorityLevel,
-                trustScore: processed.trustScore as number | string | null | undefined,
+                trustScore: (processed.trustScore as number | string | null | undefined) ?? (processed.trust_score as number | string | null | undefined),
             };
         }
 
