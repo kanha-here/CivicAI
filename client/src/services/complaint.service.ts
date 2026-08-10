@@ -14,8 +14,6 @@ export type Complaint = {
     validity?: string;
     validity_confidence?: number;
     priority?: string;
-    priority_confidence?: number;
-    trust_score?: number;
     unavailable?: boolean;
     error?: string;
   };
@@ -68,8 +66,6 @@ export type Complaint = {
     validity?: string | null;
     validityConfidence?: number | string | null;
     priority?: string | null;
-    priorityConfidence?: number | string | null;
-    trustScore?: number | string | null;
   }>;
   statusHistory?: Array<{ id: string; oldStatus?: string | null; newStatus: string; createdAt: string; note?: string; changedBy?: { name?: string } | null }>;
 };

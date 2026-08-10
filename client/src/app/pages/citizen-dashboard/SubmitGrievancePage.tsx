@@ -22,8 +22,6 @@ function normalizePrediction(complaint: any) {
             || directPrediction.validity
             || directPrediction.priority
             || directPrediction.validity_confidence != null
-            || directPrediction.priority_confidence != null
-            || directPrediction.trust_score != null
         )
     );
     if (hasDirectPredictionValues) {
@@ -35,15 +33,11 @@ function normalizePrediction(complaint: any) {
         savedPrediction.validity
         || savedPrediction.priority
         || savedPrediction.validityConfidence != null
-        || savedPrediction.priorityConfidence != null
-        || savedPrediction.trustScore != null
     )) {
         return {
             validity: savedPrediction.validity,
             validity_confidence: savedPrediction.validityConfidence,
             priority: savedPrediction.priority,
-            priority_confidence: savedPrediction.priorityConfidence,
-            trust_score: savedPrediction.trustScore,
         };
     }
 
@@ -77,8 +71,6 @@ function normalizePrediction(complaint: any) {
             validity: processed1.validity || model1?.classification,
             validity_confidence: Number(processed1.validityConfidence ?? processed1.validity_confidence ?? model1?.confidenceScore ?? model1?.validityConfidence ?? 0),
             priority: processed1.priority || model1?.priorityLevel,
-            priority_confidence: Number(processed1.priorityConfidence ?? processed1.priority_confidence ?? model1?.priorityScore ?? model1?.priorityConfidence ?? 0),
-            trust_score: processed1.trustScore ?? processed1.trust_score,
             classification,
             classification_confidence: classificationConfidence,
             suggestedDepartment: classification,
@@ -156,8 +148,6 @@ export function SubmitGrievance() {
         validity?: string;
         validity_confidence?: number;
         priority?: string;
-        priority_confidence?: number;
-        trust_score?: number;
         classification?: string;
         classification_confidence?: number;
         suggestedDepartment?: string;
@@ -1130,22 +1120,6 @@ export function SubmitGrievance() {
                                     <span className="font-medium text-slate-900 dark:text-white">
                                         {predictionResult.validity_confidence != null
                                             ? `${predictionResult.validity_confidence}%`
-                                            : "Model pending"}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="block text-xs text-slate-500">Priority Confidence</span>
-                                    <span className="font-medium text-slate-900 dark:text-white">
-                                        {predictionResult.priority_confidence != null
-                                            ? `${predictionResult.priority_confidence}%`
-                                            : "Model pending"}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="block text-xs text-slate-500">Trust Score</span>
-                                    <span className="font-medium text-slate-900 dark:text-white">
-                                        {predictionResult.trust_score != null
-                                            ? predictionResult.trust_score
                                             : "Model pending"}
                                     </span>
                                 </div>

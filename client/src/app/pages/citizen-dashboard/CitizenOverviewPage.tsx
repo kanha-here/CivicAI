@@ -117,21 +117,21 @@ export function CitizenOverview() {
                 || directPrediction.validity
                 || directPrediction.priority
                 || directPrediction.validity_confidence != null
-                || directPrediction.priority_confidence != null
-                || directPrediction.trust_score != null
             )
         );
         if (hasDirectPredictionValues) {
             return {
                 validity: directPrediction.validity,
                 priority: directPrediction.priority,
-                trustScore: directPrediction.trust_score,
             };
         }
 
         const savedPrediction = selectedComplaint?.predictions?.[0];
-        if (savedPrediction && (savedPrediction.validity || savedPrediction.priority || savedPrediction.validityConfidence != null || savedPrediction.priorityConfidence != null || savedPrediction.trustScore != null)) {
-            return savedPrediction;
+        if (savedPrediction && (savedPrediction.validity || savedPrediction.priority || savedPrediction.validityConfidence != null)) {
+            return {
+                validity: savedPrediction.validity,
+                priority: savedPrediction.priority,
+            };
         }
 
         if (selectedModel1) {
@@ -139,7 +139,6 @@ export function CitizenOverview() {
             return {
                 validity: (processed.validity as string | undefined) || selectedModel1.classification,
                 priority: (processed.priority as string | undefined) || selectedModel1.priorityLevel,
-                trustScore: (processed.trustScore as number | string | null | undefined) ?? (processed.trust_score as number | string | null | undefined),
             };
         }
 
@@ -422,7 +421,7 @@ export function CitizenOverview() {
                                         </pre>
                                     </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
                                             <span className="block text-xs text-slate-500">Validity</span>
                                             <span className="font-semibold text-slate-900 dark:text-white">
@@ -433,12 +432,6 @@ export function CitizenOverview() {
                                             <span className="block text-xs text-slate-500">AI Priority</span>
                                             <span className="font-semibold text-slate-900 dark:text-white">
                                                 {selectedPrediction?.priority || "AI processing"}
-                                            </span>
-                                        </div>
-                                        <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-                                            <span className="block text-xs text-slate-500">Trust Score</span>
-                                            <span className="font-semibold text-slate-900 dark:text-white">
-                                                {selectedPrediction?.trustScore ?? "AI processing"}
                                             </span>
                                         </div>
                                     </div>

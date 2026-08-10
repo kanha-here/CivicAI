@@ -164,8 +164,6 @@ export function useRealtimeComplaints(): RealtimeState {
         || directPrediction.validity
         || directPrediction.priority
         || directPrediction.validity_confidence != null
-        || directPrediction.priority_confidence != null
-        || directPrediction.trust_score != null
       )
         ? directPrediction
         : savedPrediction || null;
@@ -173,10 +171,9 @@ export function useRealtimeComplaints(): RealtimeState {
       const confidenceScore = Number(
         model2?.confidenceScore
         || model1?.confidenceScore
-        || resolvedPrediction?.priority_confidence
-        || resolvedPrediction?.priorityConfidence
-        || complaint.predictions?.[0]?.priorityConfidence
-        || complaint.prediction?.priority_confidence
+        || resolvedPrediction?.validity_confidence
+        || complaint.predictions?.[0]?.validityConfidence
+        || complaint.prediction?.validity_confidence
         || 75,
       );
       const estimatedHours = Number(model2?.estimatedResolutionHours || resolution?.estimatedResolutionHours || 24);
@@ -223,8 +220,8 @@ export function useRealtimeComplaints(): RealtimeState {
                 modelName: "MODEL_1_AUTHENTICITY_PRIORITY",
                 label: "Model 1",
                 status: "COMPLETED",
-                confidence: Number(savedPrediction.priorityConfidence || savedPrediction.validityConfidence || 0),
-                summary: `Validity: ${savedPrediction.validity || "Pending"}; priority: ${savedPrediction.priority || "Pending"}; trust score: ${savedPrediction.trustScore ?? "Pending"}.`,
+                confidence: Number(savedPrediction.validityConfidence || 0),
+                summary: `Validity: ${savedPrediction.validity || "Pending"}; priority: ${savedPrediction.priority || "Pending"}.`,
               },
           model2 && {
             modelName: model2.modelName,
