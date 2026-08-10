@@ -11,14 +11,33 @@ const VERIFY_API_URL =
 // instead of only starting once they've already uploaded a photo or hit
 // record \u2014 shrinking the wait right when it matters.
 //
-// This is best-effort: failures are swallowed on purpose. A warm-up ping
-// failing just means the first *real* request pays the cold-start cost
-// (handled separately, with its own error message) \u2014 it isn't itself
-// something to alarm the citizen about.
+// This is best-effort: failures are swallowed for the caller (a warm-up
+// ping failing just means the first *real* request pays the cold-start
+// cost, handled separately with its own error message) but are logged to
+// the console so a flaky warm-up isn't silently invisible when diagnosing
+// "verification isn't coming back" reports.
+async function pingWithRetry(url: string, init: RequestInit, attempts = 2) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const res = await fetch(url, init);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return true;
+    } catch (err) {
+      const isLastAttempt = attempt === attempts;
+      console.warn(`[modelWarmup] ${url} failed (attempt ${attempt}/${attempts})`, err);
+      if (isLastAttempt) return false;
+      // Brief backoff before retrying — covers a cold Space's first
+      // request being dropped while its container is still starting.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  return false;
+}
+
 export function warmUpModelServices() {
-  fetch(`${SPEECH_API_URL}/health`).catch(() => undefined);
+  void pingWithRetry(`${SPEECH_API_URL}/health`, { method: "GET" });
 
   // The verify API loads its (larger) model lazily on first use, but
   // exposes a dedicated endpoint to trigger that ahead of time.
-  fetch(`${VERIFY_API_URL}/load-model`, { method: "POST" }).catch(() => undefined);
+  void pingWithRetry(`${VERIFY_API_URL}/load-model`, { method: "POST" });
 }

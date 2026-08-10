@@ -5,8 +5,13 @@
 const VERIFY_API_URL =
   import.meta.env.VITE_VERIFY_API_URL || "https://kanhacoderx-image-text-verify.hf.space";
 
-// Same reasoning as the speech API: free Docker Spaces cold-start slowly.
-const VERIFY_TIMEOUT_MS = 90_000;
+// Same reasoning as the speech API: free Docker Spaces cold-start slowly —
+// and this one loads a multimodal (Qwen3-VL) model, which is heavier than a
+// typical Space and can genuinely take over a minute to load on a cold,
+// CPU-only container. 90s was cutting it close and aborting requests that
+// would have succeeded a few seconds later; 120s gives the cold-start case
+// enough room without leaving the citizen waiting indefinitely.
+const VERIFY_TIMEOUT_MS = 120_000;
 
 export type ImageVerificationResult = {
   complaint_text: string;
@@ -52,13 +57,20 @@ export async function verifyImageEvidence(
 
     if (!response.ok) {
       const detail = await response.json().catch(() => null);
-      return { ok: false, error: detail?.detail || `Verification service returned ${response.status}` };
+      const message = detail?.detail || `Verification service returned ${response.status}`;
+      console.error("[imageVerification] non-OK response", response.status, detail);
+      return { ok: false, error: message };
     }
 
     const result: ImageVerificationResult = await response.json();
     return { ok: true, result };
   } catch (error) {
     const timedOut = error instanceof DOMException && error.name === "AbortError";
+    // Log the raw error — the UI only ever shows a friendly fallback
+    // message, so without this the *actual* cause (CORS rejection, DNS
+    // failure, non-2xx before parsing, etc. vs. a genuine timeout) is
+    // invisible when someone reports "verification isn't showing up".
+    console.error("[imageVerification] request failed", { timedOut, error });
     return {
       ok: false,
       error: timedOut
