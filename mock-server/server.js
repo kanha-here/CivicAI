@@ -94,7 +94,14 @@ function currentUser(req) {
   }
 }
 
-// In-memory user store: email -> user record
+// In-memory user store: email -> user record. This only ever holds ACTIVE
+// accounts (citizen, officer, admin, super_admin) — an officer/admin
+// signup never lands here until a super admin approves it (see
+// pendingApprovals below). Keeping pending/rejected identities out of this
+// map entirely — rather than in here with a status flag — is deliberate:
+// it structurally rules out an entire class of bugs (a rejected request
+// quietly still being able to log in, or a pending email permanently
+// blocking that address from ever being used again).
 const users = new Map();
 
 users.set(SUPER_ADMIN_EMAIL, {
@@ -105,6 +112,13 @@ users.set(SUPER_ADMIN_EMAIL, {
   passwordHash: bcrypt.hashSync(SUPER_ADMIN_PASSWORD, 10),
   status: 'ACTIVE',
 });
+
+// In-memory store for officer/admin signups awaiting a decision, keyed by
+// email. A pending request is NEVER copied into `users` until approved, so
+// it can never accidentally authenticate. Rejecting a request deletes it
+// from here outright — the email is immediately free to sign up again
+// (as a citizen, or to re-request officer/admin) with no leftover trace.
+const pendingApprovals = new Map();
 
 // In-memory complaint store: id -> complaint record
 const complaints = new Map();
@@ -125,32 +139,45 @@ authRouter.post('/sign-up/email', async (req, res) => {
     return res.status(400).json({ message: 'name, email and password are required' });
   }
   const normalizedEmail = String(email).trim().toLowerCase();
-  if (users.has(normalizedEmail)) {
+
+  // Check both stores — an email can't be "taken" by an active account AND
+  // separately taken by a request still awaiting a decision.
+  if (users.has(normalizedEmail) || pendingApprovals.has(normalizedEmail)) {
     return res.status(409).json({ message: 'An account with this email already exists' });
   }
 
   const normalizedRole = normalizeRole(role);
-  const pendingApproval = isApprovalRequiredRole(normalizedRole);
   const passwordHash = await bcrypt.hash(password, 10);
+
+  if (isApprovalRequiredRole(normalizedRole)) {
+    // Queued for a super admin decision — nothing is written to `users`,
+    // so this identity cannot log in, and this email is only "reserved"
+    // while the request is pending. A reject frees it immediately.
+    pendingApprovals.set(normalizedEmail, {
+      id: randomUUID(),
+      name,
+      email: normalizedEmail,
+      passwordHash,
+      requestedRole: normalizedRole,
+      requestedAt: new Date().toISOString(),
+    });
+    return res.status(202).json({
+      message: 'Credentials Sent To Admin For Approval',
+      user: null,
+      session: null,
+      pendingApproval: true,
+    });
+  }
+
   const user = {
     id: randomUUID(),
     name,
     email: normalizedEmail,
     role: normalizedRole,
     passwordHash,
-    status: pendingApproval ? 'PENDING_APPROVAL' : 'ACTIVE',
+    status: 'ACTIVE',
   };
-
   users.set(user.email, user);
-
-  if (pendingApproval) {
-    return res.status(202).json({
-      message: 'Credentials Sent To Admin For Approval',
-      user: toPublicUser(user),
-      session: null,
-      pendingApproval: true,
-    });
-  }
 
   const token = signToken(user);
   res.setHeader('set-auth-jwt', token);
@@ -159,11 +186,27 @@ authRouter.post('/sign-up/email', async (req, res) => {
 
 authRouter.post('/sign-in/email', async (req, res) => {
   const { email, password } = req.body || {};
-  const user = users.get(String(email || '').trim().toLowerCase());
-  if (!user) return res.status(401).json({ message: 'Invalid email or password' });
-  if (user.status === 'PENDING_APPROVAL') {
-    return res.status(403).json({ message: 'Credentials Sent To Admin For Approval. Please wait for super admin approval.' });
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+
+  // Check the pending queue first — but only reveal "pending" once the
+  // password actually matches, so this endpoint can't be used to fish for
+  // which email addresses have a pending officer/admin request.
+  const pending = pendingApprovals.get(normalizedEmail);
+  if (pending) {
+    const pendingMatch = await bcrypt.compare(password || '', pending.passwordHash);
+    if (pendingMatch) {
+      return res.status(403).json({
+        message: `Your ${pending.requestedRole} account is still awaiting admin approval.`,
+        pendingApproval: true,
+      });
+    }
+    // Wrong password against a pending record — fall through to the
+    // generic invalid-credentials response below, same as any other
+    // non-existent or mistyped login, so nothing is leaked either way.
   }
+
+  const user = users.get(normalizedEmail);
+  if (!user) return res.status(401).json({ message: 'Invalid email or password' });
   const match = await bcrypt.compare(password || '', user.passwordHash);
   if (!match) return res.status(401).json({ message: 'Invalid email or password' });
   const token = signToken(user);
@@ -212,21 +255,21 @@ app.get('/api/health', (req, res) => res.json(ok({ status: 'ok' })));
 
 app.get('/api/admin/pending-approvals', (req, res) => {
   const requester = currentUser(req);
-  if (!requester || !['admin', 'super_admin'].includes(requester.role)) {
-    return fail(res, 403, 'Only admins can access pending approvals.');
+  if (!requester || requester.role !== 'super_admin') {
+    return fail(res, 403, 'Only the super admin can view pending approvals.');
   }
 
-  const pending = Array.from(users.values())
-    .filter((user) => ['admin', 'officer'].includes(user.role) && user.status === 'PENDING_APPROVAL')
-    .map((user) => ({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      requestedRole: user.role,
-      requestedAt: new Date().toISOString(),
-    }));
+  const pending = Array.from(pendingApprovals.values())
+    .map((request) => ({
+      id: request.id,
+      name: request.name,
+      email: request.email,
+      requestedRole: request.requestedRole,
+      requestedAt: request.requestedAt,
+    }))
+    .sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
 
-  return res.json(ok(pending, 'Pending approvals fetched'));
+  return res.json(ok({ items: pending }, 'Pending approvals fetched'));
 });
 
 app.post('/api/admin/pending-approvals/:email/:decision', (req, res) => {
@@ -237,20 +280,31 @@ app.post('/api/admin/pending-approvals/:email/:decision', (req, res) => {
 
   const email = String(req.params.email || '').trim().toLowerCase();
   const decision = String(req.params.decision || '').toLowerCase();
-  const user = users.get(email);
+  const pending = pendingApprovals.get(email);
 
-  if (!user || !['admin', 'officer'].includes(user.role)) {
+  if (!pending) {
     return fail(res, 404, 'No pending admin or officer request exists for that email.');
   }
 
   if (decision === 'approve') {
-    user.status = 'ACTIVE';
-    return res.json(ok({ email: user.email, role: user.role }, 'Request approved successfully.'));
+    users.set(email, {
+      id: pending.id,
+      name: pending.name,
+      email,
+      role: pending.requestedRole,
+      passwordHash: pending.passwordHash,
+      status: 'ACTIVE',
+    });
+    pendingApprovals.delete(email);
+    return res.json(ok({ email, role: pending.requestedRole }, 'Request approved successfully.'));
   }
 
   if (decision === 'reject') {
-    user.status = 'REJECTED';
-    return res.json(ok({ email: user.email, role: user.role }, 'Request rejected successfully.'));
+    // Deleted outright, not just flagged — this is what actually frees the
+    // email up again and guarantees a rejected request can never later
+    // authenticate.
+    pendingApprovals.delete(email);
+    return res.json(ok({ email }, 'Request rejected successfully.'));
   }
 
   return fail(res, 400, 'Decision must be approve or reject.');

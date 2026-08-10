@@ -121,11 +121,6 @@ export function AuthPage() {
             {authMode === "login" && "Access the CivicAI Intelligence Platform"}
             {authMode === "signup" && "Join the smart governance network"}
           </p>
-          {authMode === "login" && (
-            <p className="mt-3 text-center text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-              Super admin demo: superadmin@griev.com / Griev@123
-            </p>
-          )}
         </motion.div>
       </div>
 

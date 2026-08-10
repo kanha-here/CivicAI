@@ -117,7 +117,7 @@ export function SuperAdminPanel() {
             )}
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Anyone who signs up requesting Officer or Admin access is held here \u2014 they cannot log in until you approve them.
+            Anyone who signs up requesting Officer or Admin access is held here — they cannot log in until you approve them.
           </p>
         </div>
         {pending.length === 0 ? (

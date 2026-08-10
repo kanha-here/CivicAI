@@ -16,7 +16,7 @@ interface AuthContextType {
   user: User | null;
   session: { token: string } | null;
   loading: boolean;
-  signUp: (data: { name: string; email: string; password: string; role: string }) => Promise<{ error?: string; pendingApproval?: boolean }>;
+  signUp: (data: { name: string; email: string; password: string; role: string }) => Promise<{ error?: string; pendingApproval?: boolean; message?: string }>;
   signIn: (data: { email: string; password: string }) => Promise<{ error?: string }>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -110,15 +110,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: data.name,
         role: data.role,
       });
-      if (!error && authData?.user) {
-        if ((authData as any).pendingApproval) {
-          return { pendingApproval: true };
-        }
+      if (error) return { error: error.message || "Sign up failed" };
+
+      // Checked independently of `authData.user` — a pending officer/admin
+      // request intentionally has no user object (nothing was created to
+      // log into yet), so gating this on `user` being truthy would
+      // misreport a successful pending request as a failure.
+      if (authData?.pendingApproval) {
+        return { pendingApproval: true, message: (authData as any).message };
+      }
+
+      if (authData?.user) {
         localStorage.setItem("govops_role", data.role);
         await syncUser();
         return {};
       }
-      return { error: error?.message || "Sign up failed" };
+      return { error: "Sign up failed" };
     } catch (err: any) {
       return { error: err?.message || "Sign up failed" };
     }
