@@ -1,18 +1,52 @@
 import { motion } from "motion/react";
-import { useState, useEffect } from "react";
-import { Users, Shield, Database, Settings, Key, UserCheck, ShieldAlert, MoreVertical, Star, CheckCircle2, BriefcaseBusiness } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Users, Shield, Database, Settings, Key, UserCheck, ShieldAlert, MoreVertical, Star, CheckCircle2, BriefcaseBusiness, Clock, X, Check } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { dashboardService } from "../../services/dashboard.service";
+import { apiClient } from "../../api/client";
+import toast from "react-hot-toast";
+
+type PendingApproval = {
+  id: string;
+  name: string;
+  email: string;
+  requestedRole: string;
+  requestedAt: string;
+};
 
 export function SuperAdminPanel() {
   const [data, setData] = useState<any>(null);
   const [officerPerformance, setOfficerPerformance] = useState<any>(null);
+  const [pending, setPending] = useState<PendingApproval[]>([]);
+  const [actioningEmail, setActioningEmail] = useState<string | null>(null);
+
+  const loadPending = useCallback(() => {
+    apiClient
+      .get<{ items: PendingApproval[] }>("/admin/pending-approvals")
+      .then((res) => setPending(res.items))
+      .catch(console.error);
+  }, []);
 
   useEffect(() => {
     dashboardService.users().then(setData).catch(console.error);
     dashboardService.officerPerformance().then(setOfficerPerformance).catch(console.error);
-  }, []);
+    loadPending();
+  }, [loadPending]);
+
+  const handleDecision = async (email: string, decision: "approve" | "reject") => {
+    setActioningEmail(email);
+    try {
+      await apiClient.post(`/admin/pending-approvals/${encodeURIComponent(email)}/${decision}`);
+      toast.success(decision === "approve" ? "Request approved" : "Request rejected");
+      setPending((prev) => prev.filter((p) => p.email !== email));
+      if (decision === "approve") dashboardService.users().then(setData).catch(console.error);
+    } catch {
+      // apiClient's interceptor already surfaces a toast on failure
+    } finally {
+      setActioningEmail(null);
+    }
+  };
 
   const users = data?.users ?? [];
   const stats = data?.stats ?? {};
@@ -69,6 +103,66 @@ export function SuperAdminPanel() {
           </div>
           <div className="text-3xl font-bold text-slate-900 dark:text-white">{stats.securityAlerts ?? 0}</div>
         </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+          <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            <Clock className="w-5 h-5 text-amber-500" />
+            Pending Officer / Admin Approvals
+            {pending.length > 0 && (
+              <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                {pending.length}
+              </Badge>
+            )}
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Anyone who signs up requesting Officer or Admin access is held here \u2014 they cannot log in until you approve them.
+          </p>
+        </div>
+        {pending.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-slate-500">No pending requests right now.</div>
+        ) : (
+          <div className="divide-y divide-slate-200 dark:divide-slate-800">
+            {pending.map((req) => (
+              <div key={req.email} className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium text-slate-900 dark:text-white">{req.name}</div>
+                  <div className="text-slate-500 dark:text-slate-400 text-xs">{req.email}</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="outline" className="border-blue-500 text-blue-600 dark:text-blue-400 capitalize">
+                      Requested: {req.requestedRole}
+                    </Badge>
+                    <span className="text-xs text-slate-400">
+                      {new Date(req.requestedAt).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    disabled={actioningEmail === req.email}
+                    onClick={() => handleDecision(req.email, "approve")}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                  >
+                    <Check className="w-4 h-4 mr-1.5" />
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={actioningEmail === req.email}
+                    onClick={() => handleDecision(req.email, "reject")}
+                    className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-900/20"
+                  >
+                    <X className="w-4 h-4 mr-1.5" />
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
