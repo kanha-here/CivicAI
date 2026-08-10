@@ -5,7 +5,7 @@ import { Button } from "../../components/ui/button";
 import { complaintService } from "../../../services/complaint.service";
 import { speechLanguages, useVoiceTranscription } from "../../../hooks/useVoiceTranscription";
 import { verifyImageEvidence, type ImageVerificationResult } from "../../../services/imageVerification.service";
-import { warmUpModelServices } from "../../../services/modelWarmup.service";
+import { warmUpModelServices, waitForVerifyModelReady, type VerifyModelStatus } from "../../../services/modelWarmup.service";
 
 type UploadItem = {
     file: File;
@@ -145,6 +145,8 @@ export function SubmitGrievance() {
     const [isVerifyingImage, setIsVerifyingImage] = useState(false);
     const imageVerificationRequestId = useRef(0);
     const imageVerificationTimeoutRef = useRef<number | null>(null);
+    const [verificationRetryCount, setVerificationRetryCount] = useState(0);
+    const [verifyModelStatus, setVerifyModelStatus] = useState<VerifyModelStatus>("unknown");
     const [predictionResult, setPredictionResult] = useState<null | {
         complaint: string;
         validity?: string;
@@ -174,6 +176,11 @@ export function SubmitGrievance() {
         // so they've had a head start by the time the citizen actually
         // records a voice note or uploads a photo.
         warmUpModelServices();
+        // Track the verify model specifically (with live status) so the
+        // "Image Evidence Verification" card can tell the citizen it's
+        // waking up instead of leaving them staring at nothing until they
+        // upload a photo and the first real request happens to time out.
+        void waitForVerifyModelReady(setVerifyModelStatus);
     }, []);
 
     useEffect(() => {
@@ -217,7 +224,11 @@ export function SubmitGrievance() {
                 imageVerificationTimeoutRef.current = null;
             }
         };
-    }, [description, uploads]);
+        // verificationRetryCount is a manual "try again" trigger (see the
+        // retry button next to the error message) — bumping it re-runs
+        // this effect with the same photo/description without the citizen
+        // needing to touch the upload or retype anything.
+    }, [description, uploads, verificationRetryCount]);
 
     useEffect(() => {
         return () => {
@@ -973,6 +984,14 @@ export function SubmitGrievance() {
                                 <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 border-b border-slate-100 dark:border-slate-800 pb-2">
                                     Image Evidence Verification
                                 </h3>
+                                {verifyModelStatus === "warming" && !isVerifyingImage && !imageVerification && (
+                                    <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 pt-1">
+                                        <ShieldQuestion className="w-4 h-4 animate-pulse" />
+                                        Verification model is waking up — this can take up to a
+                                        minute or two the first time. Attaching a photo will still
+                                        work while this finishes.
+                                    </div>
+                                )}
                                 {isVerifyingImage && (
                                     <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 pt-1">
                                         <ShieldQuestion className="w-4 h-4 animate-pulse" />
@@ -1007,9 +1026,25 @@ export function SubmitGrievance() {
                                     </div>
                                 )}
                                 {!isVerifyingImage && !imageVerification && imageVerificationError && (
-                                    <p className="text-sm text-slate-500 dark:text-slate-400 pt-1">
-                                        Couldn't verify the photo automatically ({imageVerificationError}). You can still submit — an officer will review the evidence manually.
-                                    </p>
+                                    <div className="pt-1">
+                                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                                            Couldn't verify the photo automatically ({imageVerificationError}). You can still submit — an officer will review the evidence manually.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                // A timeout here often means the Space had gone back
+                                                // to sleep — nudge it awake again before retrying so
+                                                // this retry has a real shot instead of just timing
+                                                // out the same way.
+                                                void waitForVerifyModelReady(setVerifyModelStatus);
+                                                setVerificationRetryCount((c) => c + 1);
+                                            }}
+                                            className="mt-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                                        >
+                                            Retry verification
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </motion.div>
