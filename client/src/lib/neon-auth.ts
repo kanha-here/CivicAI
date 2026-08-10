@@ -85,8 +85,8 @@ async function getSession() {
 export const neonAuthClient = {
   getSession,
   signUp: {
-    email: (data: { email: string; password: string; name: string }) =>
-      authRequest<SessionData>("/sign-up/email", {
+    email: (data: { email: string; password: string; name: string; role?: string }) =>
+      authRequest<SessionData & { pendingApproval?: boolean }>("/sign-up/email", {
         method: "POST",
         body: JSON.stringify(data),
       }),

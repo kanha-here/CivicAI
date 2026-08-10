@@ -16,7 +16,7 @@ interface AuthContextType {
   user: User | null;
   session: { token: string } | null;
   loading: boolean;
-  signUp: (data: { name: string; email: string; password: string; role: string }) => Promise<{ error?: string }>;
+  signUp: (data: { name: string; email: string; password: string; role: string }) => Promise<{ error?: string; pendingApproval?: boolean }>;
   signIn: (data: { email: string; password: string }) => Promise<{ error?: string }>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -108,8 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: data.email,
         password: data.password,
         name: data.name,
+        role: data.role,
       });
       if (!error && authData?.user) {
+        if ((authData as any).pendingApproval) {
+          return { pendingApproval: true };
+        }
         localStorage.setItem("govops_role", data.role);
         await syncUser();
         return {};

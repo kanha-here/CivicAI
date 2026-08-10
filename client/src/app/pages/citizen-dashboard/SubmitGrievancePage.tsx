@@ -143,6 +143,8 @@ export function SubmitGrievance() {
     const [imageVerification, setImageVerification] = useState<ImageVerificationResult | null>(null);
     const [imageVerificationError, setImageVerificationError] = useState<string | null>(null);
     const [isVerifyingImage, setIsVerifyingImage] = useState(false);
+    const imageVerificationRequestId = useRef(0);
+    const imageVerificationTimeoutRef = useRef<number | null>(null);
     const [predictionResult, setPredictionResult] = useState<null | {
         complaint: string;
         validity?: string;
@@ -173,6 +175,49 @@ export function SubmitGrievance() {
         // records a voice note or uploads a photo.
         warmUpModelServices();
     }, []);
+
+    useEffect(() => {
+        const latestPhoto = uploads[0];
+        const trimmedDescription = description.trim();
+
+        if (imageVerificationTimeoutRef.current !== null) {
+            window.clearTimeout(imageVerificationTimeoutRef.current);
+            imageVerificationTimeoutRef.current = null;
+        }
+
+        if (!latestPhoto || trimmedDescription.length < 20) {
+            setImageVerification(null);
+            setImageVerificationError(null);
+            setIsVerifyingImage(false);
+            return;
+        }
+
+        const requestId = ++imageVerificationRequestId.current;
+        setIsVerifyingImage(true);
+        setImageVerificationError(null);
+
+        imageVerificationTimeoutRef.current = window.setTimeout(async () => {
+            const outcome = await verifyImageEvidence(trimmedDescription, latestPhoto.file);
+
+            if (imageVerificationRequestId.current !== requestId) return;
+
+            if (outcome.ok) {
+                setImageVerification(outcome.result);
+            } else {
+                setImageVerification(null);
+                setImageVerificationError(outcome.error);
+            }
+
+            setIsVerifyingImage(false);
+        }, 800);
+
+        return () => {
+            if (imageVerificationTimeoutRef.current !== null) {
+                window.clearTimeout(imageVerificationTimeoutRef.current);
+                imageVerificationTimeoutRef.current = null;
+            }
+        };
+    }, [description, uploads]);
 
     useEffect(() => {
         return () => {
@@ -986,21 +1031,6 @@ export function SubmitGrievance() {
                                 }
                                 setSubmitError(null);
                                 setStep(step + 1);
-
-                                // Kick off image-text verification in the background once
-                                // evidence is complete — it can take a while on a cold
-                                // start, so don't block the step transition on it. The
-                                // Review step below shows its own loading/result state.
-                                if (step === 2 && uploads[0] && !imageVerification && !isVerifyingImage) {
-                                    setIsVerifyingImage(true);
-                                    setImageVerificationError(null);
-                                    verifyImageEvidence(description, uploads[0].file)
-                                        .then((outcome) => {
-                                            if (outcome.ok) setImageVerification(outcome.result);
-                                            else setImageVerificationError(outcome.error);
-                                        })
-                                        .finally(() => setIsVerifyingImage(false));
-                                }
                                 return;
                             }
 

@@ -19,6 +19,7 @@ export function AuthPage() {
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const handleGoogleSignIn = async () => {
     setError("");
@@ -41,6 +42,7 @@ export function AuthPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccessMessage("");
 
     if (authMode === "signup") {
       if (!formData.name || !formData.email || !formData.password) {
@@ -62,6 +64,10 @@ export function AuthPage() {
 
       if (result.error) {
         setError(result.error);
+        setLoading(false);
+      } else if (result.pendingApproval) {
+        setSuccessMessage("Credentials Sent To Admin For Approval");
+        setFormData({ name: "", email: "", password: "" });
         setLoading(false);
       } else {
         // Signup successful — session is already active, redirect directly
@@ -115,6 +121,11 @@ export function AuthPage() {
             {authMode === "login" && "Access the CivicAI Intelligence Platform"}
             {authMode === "signup" && "Join the smart governance network"}
           </p>
+          {authMode === "login" && (
+            <p className="mt-3 text-center text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+              Super admin demo: superadmin@griev.com / Griev@123
+            </p>
+          )}
         </motion.div>
       </div>
 
@@ -236,6 +247,12 @@ export function AuthPage() {
                   <p className="mt-1.5 text-xs text-slate-500">Must be at least 8 characters</p>
                 )}
               </div>
+
+              {successMessage && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-300">
+                  {successMessage}
+                </div>
+              )}
 
               <AnimatePresence>
                 {error && (

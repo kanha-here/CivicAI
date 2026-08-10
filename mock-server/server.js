@@ -37,18 +37,18 @@ app.use(
 app.use(express.json({ limit: '15mb' }));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-not-for-production';
+const SUPER_ADMIN_EMAIL = 'superadmin@griev.com';
+const SUPER_ADMIN_PASSWORD = 'Griev@123';
 
-// In-memory user store: email -> user record
-const users = new Map();
-
-// In-memory complaint store: id -> complaint record
-const complaints = new Map();
-
-function ok(data, message = "OK") {
-  return { success: true, message, data };
+function normalizeRole(role) {
+  const value = String(role || 'citizen').trim().toLowerCase();
+  if (['citizen', 'officer', 'admin', 'super_admin'].includes(value)) return value;
+  return 'citizen';
 }
-function fail(res, status, message) {
-  return res.status(status).json({ success: false, message, data: null });
+
+function isApprovalRequiredRole(role) {
+  const normalized = normalizeRole(role);
+  return normalized === 'admin' || normalized === 'officer';
 }
 
 function toPublicUser(u) {
@@ -59,6 +59,7 @@ function toPublicUser(u) {
     role: u.role,
     emailVerified: true,
     image: null,
+    status: u.status || 'ACTIVE',
   };
 }
 
@@ -82,35 +83,87 @@ function getBearerToken(req) {
   return m ? m[1] : null;
 }
 
+function currentUser(req) {
+  const token = getBearerToken(req);
+  if (!token) return null;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return users.get(decoded.email) || null;
+  } catch {
+    return null;
+  }
+}
+
+// In-memory user store: email -> user record
+const users = new Map();
+
+users.set(SUPER_ADMIN_EMAIL, {
+  id: randomUUID(),
+  name: 'Super Admin',
+  email: SUPER_ADMIN_EMAIL,
+  role: 'super_admin',
+  passwordHash: bcrypt.hashSync(SUPER_ADMIN_PASSWORD, 10),
+  status: 'ACTIVE',
+});
+
+// In-memory complaint store: id -> complaint record
+const complaints = new Map();
+
+function ok(data, message = "OK") {
+  return { success: true, message, data };
+}
+function fail(res, status, message) {
+  return res.status(status).json({ success: false, message, data: null });
+}
+
 // ---- Simple Auth (replaces Neon Auth) ----
 const authRouter = express.Router();
 
 authRouter.post('/sign-up/email', async (req, res) => {
-  const { email, password, name } = req.body || {};
+  const { email, password, name, role } = req.body || {};
   if (!email || !password || !name) {
     return res.status(400).json({ message: 'name, email and password are required' });
   }
-  if (users.has(email.toLowerCase())) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (users.has(normalizedEmail)) {
     return res.status(409).json({ message: 'An account with this email already exists' });
   }
+
+  const normalizedRole = normalizeRole(role);
+  const pendingApproval = isApprovalRequiredRole(normalizedRole);
   const passwordHash = await bcrypt.hash(password, 10);
   const user = {
     id: randomUUID(),
     name,
-    email: email.toLowerCase(),
-    role: 'citizen',
+    email: normalizedEmail,
+    role: normalizedRole,
     passwordHash,
+    status: pendingApproval ? 'PENDING_APPROVAL' : 'ACTIVE',
   };
+
   users.set(user.email, user);
+
+  if (pendingApproval) {
+    return res.status(202).json({
+      message: 'Credentials Sent To Admin For Approval',
+      user: toPublicUser(user),
+      session: null,
+      pendingApproval: true,
+    });
+  }
+
   const token = signToken(user);
   res.setHeader('set-auth-jwt', token);
-  res.json({ user: toPublicUser(user), session: { token } });
+  res.json({ user: toPublicUser(user), session: { token }, pendingApproval: false });
 });
 
 authRouter.post('/sign-in/email', async (req, res) => {
   const { email, password } = req.body || {};
-  const user = users.get((email || '').toLowerCase());
+  const user = users.get(String(email || '').trim().toLowerCase());
   if (!user) return res.status(401).json({ message: 'Invalid email or password' });
+  if (user.status === 'PENDING_APPROVAL') {
+    return res.status(403).json({ message: 'Credentials Sent To Admin For Approval. Please wait for super admin approval.' });
+  }
   const match = await bcrypt.compare(password || '', user.passwordHash);
   if (!match) return res.status(401).json({ message: 'Invalid email or password' });
   const token = signToken(user);
@@ -157,16 +210,112 @@ app.get('/api/health', (req, res) => res.json(ok({ status: 'ok' })));
 // classification instead of an empty object, so the "Model Output" panel in
 // the UI has something real to show instead of hanging on "still running".
 
-function currentUser(req) {
-  const token = getBearerToken(req);
-  if (!token) return null;
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    return users.get(decoded.email) || null;
-  } catch {
-    return null;
+app.get('/api/admin/pending-approvals', (req, res) => {
+  const requester = currentUser(req);
+  if (!requester || !['admin', 'super_admin'].includes(requester.role)) {
+    return fail(res, 403, 'Only admins can access pending approvals.');
   }
-}
+
+  const pending = Array.from(users.values())
+    .filter((user) => ['admin', 'officer'].includes(user.role) && user.status === 'PENDING_APPROVAL')
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      requestedRole: user.role,
+      requestedAt: new Date().toISOString(),
+    }));
+
+  return res.json(ok(pending, 'Pending approvals fetched'));
+});
+
+app.post('/api/admin/pending-approvals/:email/:decision', (req, res) => {
+  const requester = currentUser(req);
+  if (!requester || requester.role !== 'super_admin') {
+    return fail(res, 403, 'Only the super admin can approve or reject access requests.');
+  }
+
+  const email = String(req.params.email || '').trim().toLowerCase();
+  const decision = String(req.params.decision || '').toLowerCase();
+  const user = users.get(email);
+
+  if (!user || !['admin', 'officer'].includes(user.role)) {
+    return fail(res, 404, 'No pending admin or officer request exists for that email.');
+  }
+
+  if (decision === 'approve') {
+    user.status = 'ACTIVE';
+    return res.json(ok({ email: user.email, role: user.role }, 'Request approved successfully.'));
+  }
+
+  if (decision === 'reject') {
+    user.status = 'REJECTED';
+    return res.json(ok({ email: user.email, role: user.role }, 'Request rejected successfully.'));
+  }
+
+  return fail(res, 400, 'Decision must be approve or reject.');
+});
+
+app.get('/api/admin/users', (req, res) => {
+  const requester = currentUser(req);
+  if (!requester || !['admin', 'super_admin'].includes(requester.role)) {
+    return fail(res, 403, 'Only admins can access user management.');
+  }
+
+  const list = Array.from(users.values()).map((user) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    status: user.status === 'ACTIVE' ? 'Active' : user.status === 'PENDING_APPROVAL' ? 'Pending' : 'Inactive',
+    department: 'Unassigned',
+    createdAt: new Date().toISOString(),
+  }));
+
+  return res.json(ok({
+    users: list,
+    stats: {
+      totalUsers: list.length,
+      admins: list.filter((user) => user.role === 'admin' || user.role === 'super_admin').length,
+      systemHealth: 100,
+      securityAlerts: 0,
+    },
+  }, 'Users retrieved'));
+});
+
+app.get('/api/admin/officers/performance', (req, res) => {
+  const requester = currentUser(req);
+  if (!requester || !['admin', 'super_admin'].includes(requester.role)) {
+    return fail(res, 403, 'Only admins can access officer performance.');
+  }
+
+  const officers = Array.from(users.values())
+    .filter((user) => user.role === 'officer' && user.status === 'ACTIVE')
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      department: 'Unassigned',
+      casesTaken: 0,
+      casesSolved: 0,
+      activeCases: 0,
+      feedbackCount: 0,
+      averageRating: 0,
+      resolutionRate: 0,
+      recentFeedback: [],
+    }));
+
+  return res.json(ok({
+    officers,
+    stats: {
+      totalOfficers: officers.length,
+      totalCasesTaken: 0,
+      totalCasesSolved: 0,
+      totalFeedback: 0,
+      averageRating: 0,
+    },
+  }, 'Officer performance retrieved'));
+});
 
 // ---------------------------------------------------------------------------
 // AI model clients
