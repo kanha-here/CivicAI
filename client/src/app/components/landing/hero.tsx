@@ -6,7 +6,7 @@ export function Hero() {
   const navigate = useNavigate();
 
   return (
-    <section className="relative overflow-hidden bg-[#f7fbfa] dark:bg-[#061512] pt-20 pb-16 sm:pt-24 sm:pb-24">
+    <section className="relative overflow-hidden bg-[#f7fbfa] dark:bg-[#061512] pt-18 pb-13 sm:pt-20 sm:pb-20">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-48 left-1/2 h-[620px] w-[920px] -translate-x-1/2 rounded-full bg-emerald-200/45 dark:bg-emerald-500/10 blur-[110px]" />
         <div className="absolute -right-32 top-44 h-80 w-80 rounded-full bg-sky-100/70 dark:bg-sky-400/10 blur-[100px]" />
