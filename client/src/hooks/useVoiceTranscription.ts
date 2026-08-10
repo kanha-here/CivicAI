@@ -1,6 +1,22 @@
 import { useRef, useState } from "react";
 import toast from "react-hot-toast";
 
+// Moved here (rather than importing from the old useAzureSpeech hook) so
+// this file is self-contained and doesn't depend on the Azure integration
+// file existing at all \u2014 the app no longer uses Azure Speech.
+export const speechLanguages = [
+  { label: "Hindi", value: "hi-IN" },
+  { label: "English", value: "en-IN" },
+  { label: "Bengali", value: "bn-IN" },
+  { label: "Tamil", value: "ta-IN" },
+  { label: "Telugu", value: "te-IN" },
+  { label: "Marathi", value: "mr-IN" },
+  { label: "Gujarati", value: "gu-IN" },
+  { label: "Kannada", value: "kn-IN" },
+  { label: "Malayalam", value: "ml-IN" },
+  { label: "Punjabi", value: "pa-IN" },
+];
+
 // Default is the standard Hugging Face Spaces embed URL for
 // kanhacoderx/SpeechText (https://huggingface.co/spaces/kanhacoderx/SpeechText).
 // Override with VITE_SPEECH_API_URL if the Space ever moves or is renamed.

@@ -3,8 +3,7 @@ import { motion } from "motion/react";
 import { Camera, MapPin, Send, UploadCloud, Info, Mic, ShieldCheck, ShieldAlert, ShieldQuestion } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { complaintService } from "../../../services/complaint.service";
-import { speechLanguages } from "../../../hooks/useAzureSpeech";
-import { useVoiceTranscription } from "../../../hooks/useVoiceTranscription";
+import { speechLanguages, useVoiceTranscription } from "../../../hooks/useVoiceTranscription";
 import { verifyImageEvidence, type ImageVerificationResult } from "../../../services/imageVerification.service";
 import { warmUpModelServices } from "../../../services/modelWarmup.service";
 
