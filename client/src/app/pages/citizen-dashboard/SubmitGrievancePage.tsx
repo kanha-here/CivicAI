@@ -15,12 +15,29 @@ type UploadItem = {
 };
 
 function normalizePrediction(complaint: any) {
-    if (complaint.prediction && complaint.prediction.status !== "QUEUED") {
-        return complaint.prediction;
+    const directPrediction = complaint.prediction;
+    const hasDirectPredictionValues = !!(
+        directPrediction && (
+            directPrediction.status && directPrediction.status !== "QUEUED"
+            || directPrediction.validity
+            || directPrediction.priority
+            || directPrediction.validity_confidence != null
+            || directPrediction.priority_confidence != null
+            || directPrediction.trust_score != null
+        )
+    );
+    if (hasDirectPredictionValues) {
+        return directPrediction;
     }
 
     const savedPrediction = complaint.predictions?.[0];
-    if (savedPrediction) {
+    if (savedPrediction && (
+        savedPrediction.validity
+        || savedPrediction.priority
+        || savedPrediction.validityConfidence != null
+        || savedPrediction.priorityConfidence != null
+        || savedPrediction.trustScore != null
+    )) {
         return {
             validity: savedPrediction.validity,
             validity_confidence: savedPrediction.validityConfidence,
@@ -35,21 +52,25 @@ function normalizePrediction(complaint: any) {
     );
     if (model1) {
         const processed = model1.processedOutput || {};
+        const status = complaint.prediction?.status && complaint.prediction.status !== "QUEUED"
+            ? complaint.prediction.status
+            : model1.status || complaint.aiStatus || "COMPLETED";
         return {
             validity: processed.validity || model1.classification,
-            validity_confidence: Number(processed.validityConfidence || model1.confidenceScore || 0),
+            validity_confidence: Number(processed.validityConfidence ?? processed.validity_confidence ?? model1.confidenceScore ?? model1.validityConfidence ?? 0),
             priority: processed.priority || model1.priorityLevel,
-            priority_confidence: Number(processed.priorityConfidence || model1.priorityScore || 0),
-            trust_score: processed.trustScore,
+            priority_confidence: Number(processed.priorityConfidence ?? processed.priority_confidence ?? model1.priorityScore ?? model1.priorityConfidence ?? 0),
+            trust_score: processed.trustScore ?? processed.trust_score,
+            status,
             unavailable: model1.status === "FAILED",
-            error: model1.errorLog?.message,
+            error: model1.errorLog?.message || model1.error || complaint.prediction?.error,
         };
     }
 
     return {
         unavailable: false,
-        status: complaint.prediction?.status || "QUEUED",
-        error: "AI processing is still running. The values will appear here automatically.",
+        status: complaint.prediction?.status || complaint.aiStatus || "QUEUED",
+        error: complaint.prediction?.error || "AI processing is still running. The values will appear here automatically.",
     };
 }
 
@@ -58,10 +79,13 @@ async function waitForPrediction(complaintId: string) {
     for (let attempt = 0; attempt < 18; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 1200 : 2500));
         latest = await complaintService.getById(complaintId);
+        const predictionIsDone = latest.prediction && latest.prediction.status && latest.prediction.status !== "QUEUED";
         const model1 = latest.aiModelOutputs?.find(
             (output: any) => output.modelName === "MODEL_1_AUTHENTICITY_PRIORITY",
         );
-        if (latest.predictions?.length || model1) return latest;
+        const aiStatusDone = latest.aiStatus && latest.aiStatus !== "QUEUED" && latest.aiStatus !== "PROCESSING";
+
+        if (predictionIsDone || aiStatusDone || latest.predictions?.length || model1) return latest;
     }
     return latest;
 }
